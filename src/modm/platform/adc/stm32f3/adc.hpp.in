@@ -72,6 +72,11 @@ public:
 		InternalReference = 0,
 		Temperature = 17,
 		BatDiv3     = 18,
+%% elif target["family"] in ["g4"]
+		Opamp1 = 13,
+		Temperature = 16,
+		BatDiv3     = 17,
+		InternalReference = 18,
 %% endif
 %% elif id == 2
 %% if target["family"] in ["f3"]

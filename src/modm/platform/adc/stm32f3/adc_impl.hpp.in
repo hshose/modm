@@ -20,20 +20,25 @@
 #include <modm/platform/clock/rcc.hpp>
 #include <modm/math/algorithm/enumerate.hpp>
 
-void
-modm::platform::Adc{{ id }}::initialize(const ClockMode clk,
+template< class SystemClock
+          , modm::frequency_t frequency
+          , modm::percent_t tolerance
+          , modm::platform::Adc{{ id }}::ClockMode clk
 %% if clock_mux
-		const ClockSource clk_src,
+          , modm::platform::Adc{{ id }}::ClockSource clk_src
 %% endif
-		const Prescaler pre,
-		const CalibrationMode cal, const bool blocking)
+		  >
+void
+modm::platform::Adc{{ id }}::initialize()
+//		const Prescaler pre,
+//		const CalibrationMode cal, const bool blocking)
 {
 	uint32_t tmp = 0;
 
 	// enable clock
 %% if target["family"] in ["f3", "g4", "l5"]
 	RCC->{{ ahb }}ENR |= RCC_{{ ahb }}ENR_ADC{{ id_common }}EN;
-%% elif target["family"] in ["l4"]
+%% elif target["family"] in ["l4", "g4"]
 	Rcc::enable<Peripheral::Adc1>();
 %% endif
 
@@ -54,7 +59,7 @@ modm::platform::Adc{{ id }}::initialize(const ClockMode clk,
 	// set ADC "analog" clock source
 	if (clk != ClockMode::DoNotChange) {
 		if (clk == ClockMode::Asynchronous) {
-			setPrescaler(pre);
+			//setPrescaler(pre);
 		}
 		tmp  =  ADC{{ id_common_u }}->CCR;
 		tmp &= ~{{ adc_ccr }}_CKMODE;
@@ -68,8 +73,6 @@ modm::platform::Adc{{ id }}::initialize(const ClockMode clk,
 	modm::delay_us(10);	// FIXME: this is ugly -> find better solution
 
 	acknowledgeInterruptFlags(InterruptFlag::Ready);
-
-	calibrate(cal, true);	// blocking calibration
 
 	ADC{{ id }}->CR |= ADC_CR_ADEN;
 	if (blocking) {

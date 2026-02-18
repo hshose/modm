@@ -54,15 +54,9 @@ public:
 	}
 };
 
-struct DummySyncPin
-{
-	static void set() {}
-	static void reset() {}
-};
-
 using ControlUart = HostedSerialUart<0>;
 using DataUart = HostedSerialUart<1>;
-using Radar = modm::Iwr6843aop<ControlUart, DataUart, DummySyncPin>;
+using Radar = modm::Iwr6843aop<ControlUart, DataUart>;
 
 int
 main(int argc, char **argv)

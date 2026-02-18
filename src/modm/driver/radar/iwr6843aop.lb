@@ -24,7 +24,8 @@ def prepare(module, options):
 		":architecture:gpio",
 		":architecture:uart",
 		":architecture:delay",
-		":processing:timer")
+		":processing:timer",
+		":platform:gpio")
 	return True
 
 def build(env):

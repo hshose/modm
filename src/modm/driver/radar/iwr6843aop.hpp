@@ -146,7 +146,7 @@ struct iwr6843aop
  * @tparam MaxParserBufferSize Size of the binary parser buffer
  * @ingroup modm_driver_iwr6843aop
  */
-template<class ControlUart, class DataUart, class SyncPin,
+template<class ControlUart, class DataUart, class SyncPin = modm::platform::GpioUnused,
 		std::size_t FrameQueueSize = 8,
 		std::size_t MaxPointsPerFrame = 256,
 		std::size_t MaxParserBufferSize = 4096>

@@ -27,8 +27,12 @@ using RadarNrst = GpioC9;
 
 struct DummySyncPin
 {
-	static void set() {}
-	static void reset() {}
+	static void
+	set()
+	{}
+	static void
+	reset()
+	{}
 };
 
 using Radar = modm::Iwr6843aop<ControlUart, DataUart, DummySyncPin>;
@@ -90,9 +94,11 @@ main()
 	MODM_LOG_INFO << "IWR6843AOP example\n";
 	MODM_LOG_INFO << "Uploading configuration...\n";
 
-	if (not radar.configure(std::span<const char>{RadarConfiguration, sizeof(RadarConfiguration) - 1}))
+	if (not radar.configure(
+			std::span<const char>{RadarConfiguration, sizeof(RadarConfiguration) - 1}))
 	{
-		MODM_LOG_ERROR << "Configuration failed, error=" << static_cast<int>(radar.getLastError()) << modm::endl;
+		MODM_LOG_ERROR << "Configuration failed, error=" << static_cast<int>(radar.getLastError())
+					   << modm::endl;
 		while (true)
 		{
 			Leds::toggle();
@@ -111,7 +117,8 @@ main()
 	{
 		if (not radar.processData())
 		{
-			MODM_LOG_ERROR << "Processing error=" << static_cast<int>(radar.getLastError()) << modm::endl;
+			MODM_LOG_ERROR << "Processing error=" << static_cast<int>(radar.getLastError())
+						   << modm::endl;
 			radar.clearError();
 			modm::delay(5ms);
 		}
@@ -125,7 +132,8 @@ main()
 			const auto age = now - frame.timestamp;
 
 			uint32_t intervalMs{0};
-			if (hasLastFrameTimestamp) {
+			if (hasLastFrameTimestamp)
+			{
 				intervalMs = (frame.timestamp - lastFrameTimestamp).count();
 			}
 			lastFrameTimestamp = frame.timestamp;
@@ -135,24 +143,22 @@ main()
 			for (std::size_t ii = 0; ii < frame.pointCount; ++ii)
 			{
 				float velocity = frame.points[ii].point.velocity;
-				if (velocity < 0.f) {
-					velocity = -velocity;
-				}
-				if (velocity > maxVelocity) {
-					maxVelocity = velocity;
-				}
+				if (velocity < 0.f) { velocity = -velocity; }
+				if (velocity > maxVelocity) { maxVelocity = velocity; }
 			}
 
 			MODM_LOG_INFO.printf(
-				"Frame #%lu: %lu points detected, age: %lu ms, interval: %lu ms, max velocity: %.2f m/s\n",
+				"Frame #%lu: %lu points detected, age: %lu ms, interval: %lu ms, max velocity: "
+				"%.2f m/s\n",
 				static_cast<unsigned long>(frame.frameHeader.frameNumber),
 				static_cast<unsigned long>(frame.pointCount),
-				static_cast<unsigned long>(age.count()),
-				static_cast<unsigned long>(intervalMs),
+				static_cast<unsigned long>(age.count()), static_cast<unsigned long>(intervalMs),
 				static_cast<double>(maxVelocity));
 
-			if ((processedFrames % 10u) == 0u) {
-				MODM_LOG_INFO.printf("Processed %lu frames\n", static_cast<unsigned long>(processedFrames));
+			if ((processedFrames % 10u) == 0u)
+			{
+				MODM_LOG_INFO.printf("Processed %lu frames\n",
+									 static_cast<unsigned long>(processedFrames));
 			}
 		}
 

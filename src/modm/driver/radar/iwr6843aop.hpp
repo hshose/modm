@@ -15,12 +15,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <span>
-
 #include <modm/architecture/interface/gpio.hpp>
 #include <modm/architecture/interface/uart.hpp>
 #include <modm/processing/timer.hpp>
+#include <optional>
+#include <span>
 
 namespace modm
 {
@@ -121,9 +120,8 @@ struct iwr6843aop
 		std::optional<TemperatureStatistics> temperatureStatistics;
 	};
 
-	static constexpr std::array<uint8_t, 8> SyncPattern{
-		0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07
-	};
+	static constexpr std::array<uint8_t, 8> SyncPattern{0x02, 0x01, 0x04, 0x03,
+														0x06, 0x05, 0x08, 0x07};
 	static constexpr std::size_t FrameHeaderLength{32};
 	static constexpr std::size_t TlvHeaderLength{8};
 	static constexpr std::size_t PointStructSize{16};
@@ -147,9 +145,8 @@ struct iwr6843aop
  * @ingroup modm_driver_iwr6843aop
  */
 template<class ControlUart, class DataUart, class SyncPin = modm::platform::GpioUnused,
-		std::size_t FrameQueueSize = 8,
-		std::size_t MaxPointsPerFrame = 256,
-		std::size_t MaxParserBufferSize = 4096>
+		 std::size_t FrameQueueSize = 8, std::size_t MaxPointsPerFrame = 256,
+		 std::size_t MaxParserBufferSize = 4096>
 class Iwr6843aop : public iwr6843aop
 {
 public:
@@ -253,13 +250,10 @@ public:
 private:
 	static constexpr std::size_t DataReadChunkSize{512};
 	static constexpr std::size_t MaxConfigLineLength{320};
-	static constexpr std::size_t MinPacketLength{
-		SyncPattern.size() + FrameHeaderLength
-	};
+	static constexpr std::size_t MinPacketLength{SyncPattern.size() + FrameHeaderLength};
 
 	bool
-	sendCommandInternal(std::span<const char> command, bool verifyDone,
-						CommandResponse *response);
+	sendCommandInternal(std::span<const char> command, bool verifyDone, CommandResponse *response);
 
 	bool
 	waitForCommandResponse(bool verifyDone, CommandResponse *response);
@@ -340,8 +334,8 @@ private:
 	uint32_t consecutiveParseErrorCount_{0};
 };
 
-} // namespace modm
+}  // namespace modm
 
 #include "iwr6843aop_impl.hpp"
 
-#endif // MODM_IWR6843AOP_HPP
+#endif  // MODM_IWR6843AOP_HPP

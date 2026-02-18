@@ -10,90 +10,79 @@
 // ----------------------------------------------------------------------------
 
 #ifndef MODM_IWR6843AOP_HPP
-#	error "Don't include this file directly, use 'iwr6843aop.hpp' instead!"
+#error "Don't include this file directly, use 'iwr6843aop.hpp' instead!"
 #endif
 
 #include <algorithm>
 #include <cstring>
-
 #include <modm/architecture/interface/delay.hpp>
 
 namespace modm
 {
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::Iwr6843aop()
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::Iwr6843aop()
 {
-	for (auto &line : frameQueue_) {
-		line.pointCount = 0;
-	}
+	for (auto &line : frameQueue_) { line.pointCount = 0; }
 }
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::setSyncInterval(Duration interval)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::setSyncInterval(Duration interval)
 {
 	syncInterval_ = interval;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 Duration
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::getSyncInterval() const
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::getSyncInterval() const
 {
 	return syncInterval_;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::setControlResponseTimeout(Duration timeout)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::setControlResponseTimeout(Duration timeout)
 {
 	controlResponseTimeout_ = timeout;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 Duration
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::getControlResponseTimeout() const
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::getControlResponseTimeout() const
 {
 	return controlResponseTimeout_;
 }
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::configure(std::span<const char> configuration)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::configure(std::span<const char> configuration)
 {
 	std::array<char, MaxConfigLineLength> command{};
 	std::size_t commandLength{0};
 
 	auto executeCommand = [&](std::size_t length) -> bool {
 		std::size_t start{0};
-		while (start < length and isWhitespace(command[start])) {
-			start++;
-		}
-		while (length > start and isWhitespace(command[length - 1])) {
-			length--;
-		}
-		if (length <= start) {
-			return true;
-		}
-		if (command[start] == '%') {
-			return true;
-		}
+		while (start < length and isWhitespace(command[start])) { start++; }
+		while (length > start and isWhitespace(command[length - 1])) { length--; }
+		if (length <= start) { return true; }
+		if (command[start] == '%') { return true; }
 		return sendCommand(std::span<const char>{command.data() + start, length - start});
 	};
 
@@ -101,25 +90,22 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	{
 		if (c != '\n')
 		{
-			if (commandLength >= command.size()) {
+			if (commandLength >= command.size())
+			{
 				setError(Error::BufferOverflow);
 				return false;
 			}
 			command[commandLength++] = c;
-		}
-		else
+		} else
 		{
-			if (not executeCommand(commandLength)) {
-				return false;
-			}
+			if (not executeCommand(commandLength)) { return false; }
 			commandLength = 0;
 		}
 	}
 
-	if (commandLength > 0) {
-		if (not executeCommand(commandLength)) {
-			return false;
-		}
+	if (commandLength > 0)
+	{
+		if (not executeCommand(commandLength)) { return false; }
 	}
 
 	return true;
@@ -127,50 +113,45 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::sendCommand(
-				std::span<const char> command, CommandResponse *response)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::sendCommand(std::span<const char> command,
+											 CommandResponse *response)
 {
 	return sendCommandInternal(command, true, response);
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::sendCommandNoVerify(
-				std::span<const char> command)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::sendCommandNoVerify(std::span<const char> command)
 {
 	return sendCommandInternal(command, false, nullptr);
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::sendSensorStop()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::sendSensorStop()
 {
 	static constexpr char SensorStopCommand[] = "sensorStop";
 	return sendCommand(std::span<const char>{SensorStopCommand, sizeof(SensorStopCommand) - 1});
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::sendCommandInternal(
-				std::span<const char> command, bool verifyDone, CommandResponse *response)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::sendCommandInternal(std::span<const char> command, bool verifyDone,
+													 CommandResponse *response)
 {
-	if (command.empty()) {
-		return true;
-	}
+	if (command.empty()) { return true; }
 
-	if (response) {
-		response->clear();
-	}
+	if (response) { response->clear(); }
 
 	ControlUart::discardReceiveBuffer();
 	ControlUart::clearError();
@@ -189,12 +170,11 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return waitForCommandResponse(verifyDone, response);
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::waitForCommandResponse(
-				bool verifyDone, CommandResponse *response)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::waitForCommandResponse(bool verifyDone, CommandResponse *response)
 {
 	std::array<char, MaxResponseLineLength> currentLine{};
 	std::size_t currentLineLength{0};
@@ -219,36 +199,35 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 					dst[copyLength] = '\0';
 				}
 
-				if (containsPattern(currentLine.data(), currentLineLength, "Done")) {
+				if (containsPattern(currentLine.data(), currentLineLength, "Done"))
+				{
 					seenDone = true;
 				}
-				if (containsPattern(currentLine.data(), currentLineLength, ":/> ")) {
+				if (containsPattern(currentLine.data(), currentLineLength, ":/> "))
+				{
 					seenPrompt = true;
 				}
 
 				currentLineLength = 0;
 
-				if ((verifyDone and seenDone) or
-					(not verifyDone and (seenDone or seenPrompt)))
+				if ((verifyDone and seenDone) or (not verifyDone and (seenDone or seenPrompt)))
 				{
 					return true;
 				}
-			}
-			else if (byte != '\r')
+			} else if (byte != '\r')
 			{
-				if (currentLineLength < currentLine.size() - 1) {
+				if (currentLineLength < currentLine.size() - 1)
+				{
 					currentLine[currentLineLength++] = static_cast<char>(byte);
 				}
 			}
-		}
-		else if (ControlUart::hasError())
+		} else if (ControlUart::hasError())
 		{
 			ControlUart::discardReceiveBuffer();
 			ControlUart::clearError();
 			setError(Error::UartError);
 			return false;
-		}
-		else
+		} else
 		{
 			modm::delay_us(100);
 		}
@@ -260,11 +239,11 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::processData()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::processData()
 {
 	maybeTriggerSyncPulse();
 
@@ -272,13 +251,9 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	while (true)
 	{
 		const auto bytesRead = DataUart::read(chunk.data(), chunk.size());
-		if (bytesRead == 0) {
-			break;
-		}
+		if (bytesRead == 0) { break; }
 
-		if (not appendData(chunk.data(), bytesRead)) {
-			return false;
-		}
+		if (not appendData(chunk.data(), bytesRead)) { return false; }
 	}
 
 	if (DataUart::hasError())
@@ -294,15 +269,13 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::getFrame(FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::getFrame(FrameType &frame)
 {
-	if (frameCount_ == 0) {
-		return false;
-	}
+	if (frameCount_ == 0) { return false; }
 
 	frame = frameQueue_[frameReadIndex_];
 	frameReadIndex_ = (frameReadIndex_ + 1) % FrameQueueSize;
@@ -310,72 +283,70 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return true;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::hasFrame() const
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::hasFrame() const
 {
 	return frameCount_ > 0;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
-typename Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::Error
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::getLastError() const
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+typename Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+					MaxParserBufferSize>::Error
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::getLastError() const
 {
 	return lastError_;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::clearError()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::clearError()
 {
 	lastError_ = Error::None;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::hasError() const
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::hasError() const
 {
 	return lastError_ != Error::None;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 uint32_t
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::getParseErrorCount() const
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::getParseErrorCount() const
 {
 	return parseErrorCount_;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 uint32_t
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::getConsecutiveParseErrorCount() const
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::getConsecutiveParseErrorCount() const
 {
 	return consecutiveParseErrorCount_;
 }
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::maybeTriggerSyncPulse()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::maybeTriggerSyncPulse()
 {
-	if (syncInterval_.count() == 0) {
-		return;
-	}
+	if (syncInterval_.count() == 0) { return; }
 
 	const auto now = Clock::now();
 	if (not hasLastSyncTime_)
@@ -392,11 +363,11 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	}
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::triggerSyncPulse()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::triggerSyncPulse()
 {
 	SyncPin::set();
 	modm::delay_us(100);
@@ -405,16 +376,13 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::appendData(
-				const uint8_t *data, std::size_t length)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::appendData(const uint8_t *data, std::size_t length)
 {
-	if (length == 0) {
-		return true;
-	}
+	if (length == 0) { return true; }
 
 	if (length > MaxParserBufferSize)
 	{
@@ -436,17 +404,15 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return processParserBuffer();
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::processParserBuffer()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::processParserBuffer()
 {
 	while (true)
 	{
-		if (parserSize_ < SyncPattern.size()) {
-			return true;
-		}
+		if (parserSize_ < SyncPattern.size()) { return true; }
 
 		std::size_t syncPosition = parserSize_;
 		for (std::size_t ii = 0; ii <= parserSize_ - SyncPattern.size(); ++ii)
@@ -461,43 +427,34 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 		if (syncPosition == parserSize_)
 		{
 			const std::size_t keep = SyncPattern.size() - 1;
-			if (parserSize_ > keep) {
+			if (parserSize_ > keep)
+			{
 				std::memmove(parserBuffer_.data(), parserBuffer_.data() + parserSize_ - keep, keep);
 				parserSize_ = keep;
 			}
 			return true;
 		}
 
-		if (syncPosition > 0) {
-			dropBytes(syncPosition);
-		}
+		if (syncPosition > 0) { dropBytes(syncPosition); }
 
-		if (parserSize_ < MinPacketLength) {
-			return true;
-		}
+		if (parserSize_ < MinPacketLength) { return true; }
 
 		const uint32_t totalPacketLength = readU32(parserBuffer_.data() + SyncPattern.size() + 4);
 		if (totalPacketLength < MinPacketLength or totalPacketLength > MaxParserBufferSize)
 		{
 			setError(Error::ParseError);
-			if (not registerParseError()) {
-				return false;
-			}
+			if (not registerParseError()) { return false; }
 			dropBytes(1);
 			continue;
 		}
 
-		if (parserSize_ < totalPacketLength) {
-			return true;
-		}
+		if (parserSize_ < totalPacketLength) { return true; }
 
 		FrameType frame{};
 		if (not parsePacket(parserBuffer_.data(), totalPacketLength, frame))
 		{
 			setError(Error::ParseError);
-			if (not registerParseError()) {
-				return false;
-			}
+			if (not registerParseError()) { return false; }
 			dropBytes(1);
 			continue;
 		}
@@ -508,29 +465,25 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	}
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::parsePacket(
-				const uint8_t *packet, std::size_t packetLength, FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::parsePacket(const uint8_t *packet, std::size_t packetLength,
+											 FrameType &frame)
 {
-	if (packetLength < MinPacketLength) {
-		return false;
-	}
-	if (std::memcmp(packet, SyncPattern.data(), SyncPattern.size()) != 0) {
-		return false;
-	}
+	if (packetLength < MinPacketLength) { return false; }
+	if (std::memcmp(packet, SyncPattern.data(), SyncPattern.size()) != 0) { return false; }
 
 	const uint8_t *header = packet + SyncPattern.size();
 	frame.timestamp = Clock::now();
-	frame.frameHeader.version        = readU32(header + 0);
+	frame.frameHeader.version = readU32(header + 0);
 	frame.frameHeader.totalPacketLen = readU32(header + 4);
-	frame.frameHeader.platform       = readU32(header + 8);
-	frame.frameHeader.frameNumber    = readU32(header + 12);
-	frame.frameHeader.timeCpuCycles  = readU32(header + 16);
+	frame.frameHeader.platform = readU32(header + 8);
+	frame.frameHeader.frameNumber = readU32(header + 12);
+	frame.frameHeader.timeCpuCycles = readU32(header + 16);
 	frame.frameHeader.numDetectedObj = readU32(header + 20);
-	frame.frameHeader.numTlvs        = readU32(header + 24);
+	frame.frameHeader.numTlvs = readU32(header + 24);
 	frame.frameHeader.subframeNumber = readU32(header + 28);
 
 	frame.pointCount = 0;
@@ -540,44 +493,33 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	std::size_t tlvOffset = SyncPattern.size() + FrameHeaderLength;
 	for (uint32_t tlvIndex = 0; tlvIndex < frame.frameHeader.numTlvs; ++tlvIndex)
 	{
-		if (tlvOffset + TlvHeaderLength > packetLength) {
-			return false;
-		}
+		if (tlvOffset + TlvHeaderLength > packetLength) { return false; }
 
 		const auto tlvType = readU32(packet + tlvOffset);
 		const auto tlvPayloadLength = readU32(packet + tlvOffset + 4);
-		const std::size_t tlvTotalLength = TlvHeaderLength + static_cast<std::size_t>(tlvPayloadLength);
-		if (tlvOffset + tlvTotalLength > packetLength) {
-			return false;
-		}
+		const std::size_t tlvTotalLength =
+			TlvHeaderLength + static_cast<std::size_t>(tlvPayloadLength);
+		if (tlvOffset + tlvTotalLength > packetLength) { return false; }
 
 		const uint8_t *payload = packet + tlvOffset + TlvHeaderLength;
 		const std::size_t payloadLength = tlvPayloadLength;
 
 		switch (tlvType)
 		{
-		case static_cast<uint32_t>(RadarOutputType::DetectedPoints):
-			if (not parseDetectedPoints(payload, payloadLength, frame)) {
-				return false;
-			}
-			break;
-		case static_cast<uint32_t>(RadarOutputType::SideInfoDetectedPoints):
-			if (not parseSideInfo(payload, payloadLength, frame)) {
-				return false;
-			}
-			break;
-		case static_cast<uint32_t>(RadarOutputType::PerformanceStatistics):
-			if (not parsePerformanceStatistics(payload, payloadLength, frame)) {
-				return false;
-			}
-			break;
-		case static_cast<uint32_t>(RadarOutputType::TemperatureStatistics):
-			if (not parseTemperatureStatistics(payload, payloadLength, frame)) {
-				return false;
-			}
-			break;
-		default:
-			break;
+			case static_cast<uint32_t>(RadarOutputType::DetectedPoints):
+				if (not parseDetectedPoints(payload, payloadLength, frame)) { return false; }
+				break;
+			case static_cast<uint32_t>(RadarOutputType::SideInfoDetectedPoints):
+				if (not parseSideInfo(payload, payloadLength, frame)) { return false; }
+				break;
+			case static_cast<uint32_t>(RadarOutputType::PerformanceStatistics):
+				if (not parsePerformanceStatistics(payload, payloadLength, frame)) { return false; }
+				break;
+			case static_cast<uint32_t>(RadarOutputType::TemperatureStatistics):
+				if (not parseTemperatureStatistics(payload, payloadLength, frame)) { return false; }
+				break;
+			default:
+				break;
 		}
 
 		tlvOffset += tlvTotalLength;
@@ -586,16 +528,14 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return true;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::parseDetectedPoints(
-				const uint8_t *payload, std::size_t payloadLength, FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::parseDetectedPoints(const uint8_t *payload,
+													 std::size_t payloadLength, FrameType &frame)
 {
-	if ((payloadLength % PointStructSize) != 0) {
-		return false;
-	}
+	if ((payloadLength % PointStructSize) != 0) { return false; }
 
 	const std::size_t pointsInPayload = payloadLength / PointStructSize;
 	const std::size_t pointsToStore = std::min(pointsInPayload, MaxPointsPerFrame);
@@ -609,29 +549,22 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 			.z = readF32(payload + offset + 8),
 			.velocity = readF32(payload + offset + 12),
 		};
-		frame.points[ii] = PointWithSideInfo{
-			.point = point,
-			.sideInfo = std::nullopt
-		};
+		frame.points[ii] = PointWithSideInfo{.point = point, .sideInfo = std::nullopt};
 	}
 
 	frame.pointCount = pointsToStore;
-	if (pointsInPayload > pointsToStore) {
-		setError(Error::BufferOverflow);
-	}
+	if (pointsInPayload > pointsToStore) { setError(Error::BufferOverflow); }
 	return true;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::parseSideInfo(
-				const uint8_t *payload, std::size_t payloadLength, FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::parseSideInfo(const uint8_t *payload, std::size_t payloadLength,
+											   FrameType &frame)
 {
-	if ((payloadLength % SideInfoStructSize) != 0) {
-		return false;
-	}
+	if ((payloadLength % SideInfoStructSize) != 0) { return false; }
 
 	const std::size_t sideInfoCount = payloadLength / SideInfoStructSize;
 	const std::size_t pointCount = std::min(sideInfoCount, frame.pointCount);
@@ -651,16 +584,15 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return true;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::parsePerformanceStatistics(
-				const uint8_t *payload, std::size_t payloadLength, FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::parsePerformanceStatistics(const uint8_t *payload,
+															std::size_t payloadLength,
+															FrameType &frame)
 {
-	if (payloadLength < PerformanceStatsSize) {
-		return false;
-	}
+	if (payloadLength < PerformanceStatsSize) { return false; }
 
 	frame.performanceStatistics = PerformanceStatistics{
 		.interframeProcessingTime = readU32(payload + 0),
@@ -673,16 +605,15 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return true;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::parseTemperatureStatistics(
-				const uint8_t *payload, std::size_t payloadLength, FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::parseTemperatureStatistics(const uint8_t *payload,
+															std::size_t payloadLength,
+															FrameType &frame)
 {
-	if (payloadLength < TemperatureStatsSize) {
-		return false;
-	}
+	if (payloadLength < TemperatureStatsSize) { return false; }
 
 	frame.temperatureStatistics = TemperatureStatistics{
 		.reportValid = readU32(payload + 0),
@@ -703,11 +634,11 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::enqueueFrame(const FrameType &frame)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::enqueueFrame(const FrameType &frame)
 {
 	if (frameCount_ >= FrameQueueSize)
 	{
@@ -721,40 +652,37 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return true;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::dropBytes(std::size_t count)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::dropBytes(std::size_t count)
 {
 	count = std::min(count, parserSize_);
-	if (count == 0) {
-		return;
-	}
+	if (count == 0) { return; }
 
 	const auto remaining = parserSize_ - count;
-	if (remaining > 0) {
+	if (remaining > 0)
+	{
 		std::memmove(parserBuffer_.data(), parserBuffer_.data() + count, remaining);
 	}
 	parserSize_ = remaining;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 void
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::setError(Error error)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::setError(Error error)
 {
-	if (error != Error::None) {
-		lastError_ = error;
-	}
+	if (error != Error::None) { lastError_ = error; }
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::registerParseError()
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::registerParseError()
 {
 	parseErrorCount_++;
 	consecutiveParseErrorCount_++;
@@ -763,72 +691,65 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 
 // ----------------------------------------------------------------------------
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::isWhitespace(char c)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::isWhitespace(char c)
 {
 	return c == ' ' or c == '\t' or c == '\r';
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 bool
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::containsPattern(
-				const char *line, std::size_t lineLength, const char *pattern)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::containsPattern(const char *line, std::size_t lineLength,
+												 const char *pattern)
 {
 	const auto patternLength = std::strlen(pattern);
-	if (patternLength == 0 or lineLength < patternLength) {
-		return false;
-	}
+	if (patternLength == 0 or lineLength < patternLength) { return false; }
 
 	for (std::size_t ii = 0; ii <= lineLength - patternLength; ++ii)
 	{
-		if (std::memcmp(line + ii, pattern, patternLength) == 0) {
-			return true;
-		}
+		if (std::memcmp(line + ii, pattern, patternLength) == 0) { return true; }
 	}
 	return false;
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 uint16_t
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::readU16(const uint8_t *data)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::readU16(const uint8_t *data)
 {
-	return static_cast<uint16_t>(data[0]) |
-			(static_cast<uint16_t>(data[1]) << 8);
+	return static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 int16_t
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::readI16(const uint8_t *data)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::readI16(const uint8_t *data)
 {
 	return static_cast<int16_t>(readU16(data));
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 uint32_t
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::readU32(const uint8_t *data)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::readU32(const uint8_t *data)
 {
-	return static_cast<uint32_t>(data[0]) |
-			(static_cast<uint32_t>(data[1]) << 8) |
-			(static_cast<uint32_t>(data[2]) << 16) |
-			(static_cast<uint32_t>(data[3]) << 24);
+	return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+		   (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
 }
 
-template<class ControlUart, class DataUart, class SyncPin,
-		std::size_t FrameQueueSize, std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
+template<class ControlUart, class DataUart, class SyncPin, std::size_t FrameQueueSize,
+		 std::size_t MaxPointsPerFrame, std::size_t MaxParserBufferSize>
 float
-Iwr6843aop<ControlUart, DataUart, SyncPin,
-		FrameQueueSize, MaxPointsPerFrame, MaxParserBufferSize>::readF32(const uint8_t *data)
+Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
+		   MaxParserBufferSize>::readF32(const uint8_t *data)
 {
 	const uint32_t bits = readU32(data);
 	float value{0.f};
@@ -836,4 +757,4 @@ Iwr6843aop<ControlUart, DataUart, SyncPin,
 	return value;
 }
 
-} // namespace modm
+}  // namespace modm

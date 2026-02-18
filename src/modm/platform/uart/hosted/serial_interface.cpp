@@ -89,11 +89,11 @@ modm::platform::SerialInterface::setBaudRate(unsigned int rate)
 		(rate == 19'200) ? B19200 :
 		(rate == 38'400) ? B38400 :
 		(rate == 57'600) ? B57600 :
-		(rate == 115'200) ? B115200 : 
-		(rate == 230'400) ? B230400 : 
-		(rate == 460'800) ? B460800 : 
-		(rate == 500'000) ? B500000 : 
-		(rate == 576'000) ? B576000 : 
+		(rate == 115'200) ? B115200 :
+		(rate == 230'400) ? B230400 :
+		(rate == 460'800) ? B460800 :
+		(rate == 500'000) ? B500000 :
+		(rate == 576'000) ? B576000 :
 		(rate == 921'600) ? B921600 : B0;
 
 	// Change the configuration structure

@@ -12,8 +12,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <modm/debug/logger.hpp>
-#include <modm/driver/radar/iwr6843aop.hpp>
 #include <modm/platform.hpp>
+#include <modm/driver/radar/iwr6843aop.hpp>
 #include <modm/platform/uart/static_serial_interface.hpp>
 #include <string>
 

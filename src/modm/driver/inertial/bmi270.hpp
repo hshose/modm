@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Christopher Durand
+ * Copyright (c) 2026, Henrik Hose
  *
  * This file is part of the modm project.
  *
@@ -98,6 +98,71 @@ struct bmi270
 	};
 	MODM_FLAGS8(PowerConfiguration);
 
+	enum class InterruptOutputLevel : uint8_t
+	{
+		ActiveLow = 0x00,
+		ActiveHigh = 0x01
+	};
+
+	enum class InterruptOutputType : uint8_t
+	{
+		PushPull = 0x00,
+		OpenDrain = 0x01
+	};
+
+	enum class InterruptLatch : uint8_t
+	{
+		None = 0x00,
+		Permanent = 0x01
+	};
+
+	enum class InternalMessage : uint8_t
+	{
+		NotInitialized = 0x00,
+		Initialized = 0x01,
+		InitError = 0x02,
+		DriverError = 0x03,
+		SensorError = 0x04,
+		NvmError = 0x05,
+		StartupError = 0x06,
+		CompatibilityError = 0x07
+	};
+
+	enum class PullUpConfiguration : uint8_t
+	{
+		Off = 0x00,
+		PullUp40k = 0x01,
+		PullUp10k = 0x02,
+		PullUp2k = 0x03
+	};
+
+	enum class InterfaceSpiMode : uint8_t
+	{
+		Spi4Wire = 0x00,
+		Spi3Wire = 0x01
+	};
+
+	enum class DriveStrength : uint8_t
+	{
+		Level0 = 0b000,
+		Level1 = 0b001,
+		Level2 = 0b010,
+		Level3 = 0b011,
+		Level4 = 0b100,
+		Level5 = 0b101,
+		Level6 = 0b110,
+		Level7 = 0b111
+	};
+
+	enum class Command : uint8_t
+	{
+		TriggerGyro = 0x02,
+		ApplyUserGain = 0x03,
+		ProgramNvm = 0xA0,
+		FlushFifo = 0xB0,
+		SoftReset = 0xB6
+	};
+
 	struct AccData
 	{
 		/// acceleration in milli-g
@@ -124,6 +189,132 @@ struct bmi270
 		GyroData gyro;
 		uint32_t sensorTime;
 	};
+
+	struct ErrorInfo
+	{
+		bool fatalError;
+		uint8_t internalError;
+		bool fifoError;
+		bool auxError;
+	};
+
+	struct SensorStatus
+	{
+		bool accDataReady;
+		bool gyroDataReady;
+		bool auxDataReady;
+		bool commandReady;
+		bool auxBusy;
+	};
+
+	struct InternalStatus
+	{
+		InternalMessage message;
+		bool axesRemapError;
+		bool odr50HzError;
+	};
+
+	struct InterruptStatus
+	{
+		bool fifoFull;
+		bool fifoWatermark;
+		bool error;
+		bool auxDataReady;
+		bool gyroDataReady;
+		bool accDataReady;
+	};
+
+	struct InterruptIoControl
+	{
+		InterruptOutputLevel level;
+		InterruptOutputType outputType;
+		bool outputEnable;
+		bool inputEnable;
+	};
+
+	struct InterruptMapData
+	{
+		bool int1FifoFull;
+		bool int1FifoWatermark;
+		bool int1DataReady;
+		bool int1Error;
+		bool int2FifoFull;
+		bool int2FifoWatermark;
+		bool int2DataReady;
+		bool int2Error;
+	};
+
+	struct ErrorInterruptMask
+	{
+		bool fatalError;
+		bool internalError;
+		bool fifoError;
+		bool auxError;
+	};
+
+	struct InternalError
+	{
+		bool longProcessingTime;
+		bool fatalError;
+		bool featureEngineDisabled;
+	};
+
+	struct GyroCrtConfig
+	{
+		bool running;
+		bool readyForDownload;
+	};
+
+	struct InterfaceConfig
+	{
+		InterfaceSpiMode primarySpiMode;
+		InterfaceSpiMode oisSpiMode;
+		bool oisEnabled;
+		bool auxEnabled;
+	};
+
+	struct DriveConfig
+	{
+		DriveStrength ioPadDrv1;
+		bool ioPadI2cBoost1;
+		DriveStrength ioPadDrv2;
+		bool ioPadI2cBoost2;
+	};
+
+	struct AccOffsets
+	{
+		uint8_t x;
+		uint8_t y;
+		uint8_t z;
+	};
+
+	struct GyroOffsets
+	{
+		uint16_t x;
+		uint16_t y;
+		uint16_t z;
+		bool offsetEnabled;
+		bool gainEnabled;
+	};
+
+	struct Temperature
+	{
+		bool valid;
+		float celsius;
+	};
+
+	enum class FocAxis : uint8_t
+	{
+		X,
+		Y,
+		Z
+	};
+
+	struct AccelFocTarget
+	{
+		FocAxis axis;
+		bool negative;
+	};
 };
 
 /// @cond
@@ -148,14 +339,32 @@ struct Bmi270TransportBase
 		InterruptStatus0 = 0x1C,
 		InterruptStatus1 = 0x1D,
 		InternalStatus = 0x21,
+		Temperature0 = 0x22,
+		FeatPage = 0x2F,
+		Features = 0x30,
 		AccConf = 0x40,
 		AccRange = 0x41,
 		GyroConf = 0x42,
 		GyroRange = 0x43,
+		ErrRegMask = 0x52,
+		Int1IoCtrl = 0x53,
+		Int2IoCtrl = 0x54,
+		IntLatch = 0x55,
+		IntMapData = 0x58,
 		InitControl = 0x59,
 		InitAddress0 = 0x5B,
 		InitAddress1 = 0x5C,
 		InitData = 0x5E,
+		InternalError = 0x5F,
+		AuxIfTrim = 0x68,
+		GyroCrtConf = 0x69,
+		NvmConf = 0x6A,
+		IfConf = 0x6B,
+		Drv = 0x6C,
+		NvConf = 0x70,
+		Offset0 = 0x71,
+		Offset3 = 0x74,
+		Offset6 = 0x77,
 		PowerConf = 0x7C,
 		PowerCtrl = 0x7D,
 		Command = 0x7E
@@ -282,6 +491,132 @@ public:
 
 	bool
 	readCommandReady();
+
+	std::optional<uint8_t>
+	getChipId();
+
+	std::optional<ErrorInfo>
+	getErrors();
+
+	std::optional<SensorStatus>
+	getStatus();
+
+	std::optional<InternalStatus>
+	getInternalStatus();
+
+	std::optional<Temperature>
+	getTemperature();
+
+	std::optional<InterruptStatus>
+	getInterruptStatus();
+
+	std::optional<ErrorInterruptMask>
+	getErrorInterruptMask();
+
+	bool
+	setErrorInterruptMask(ErrorInterruptMask mask);
+
+	std::optional<InterruptIoControl>
+	getInt1IoControl();
+
+	bool
+	setInt1IoControl(InterruptIoControl control);
+
+	std::optional<InterruptIoControl>
+	getInt2IoControl();
+
+	bool
+	setInt2IoControl(InterruptIoControl control);
+
+	std::optional<InterruptLatch>
+	getInterruptLatch();
+
+	bool
+	setInterruptLatch(InterruptLatch mode);
+
+	std::optional<InterruptMapData>
+	getInterruptMapData();
+
+	bool
+	setInterruptMapData(InterruptMapData map);
+
+	std::optional<InternalError>
+	getInternalError();
+
+	std::optional<PullUpConfiguration>
+	getPullUpConfiguration();
+
+	bool
+	setPullUpConfiguration(PullUpConfiguration configuration);
+
+	std::optional<GyroCrtConfig>
+	getGyroCrtConfig();
+
+	bool
+	setGyroCrtConfig(GyroCrtConfig configuration);
+
+	std::optional<bool>
+	getNvmCrtEnabled();
+
+	bool
+	setNvmCrtEnabled(bool enable);
+
+	bool
+	triggerGyroCrt();
+
+	/// Perform component retrim (CRT) for the gyroscope.
+	///
+	/// If no configuration blob is passed, the built-in BMI270 configuration is used.
+	bool
+	doCrt(std::span<const uint8_t> configFile = {});
+
+	std::optional<InterfaceConfig>
+	getInterfaceConfig();
+
+	bool
+	setInterfaceConfig(InterfaceConfig configuration);
+
+	std::optional<DriveConfig>
+	getDriveConfig();
+
+	bool
+	setDriveConfig(DriveConfig configuration);
+
+	std::optional<AccOffsets>
+	getAccOffsets();
+
+	bool
+	setAccOffsets(AccOffsets offsets);
+
+	std::optional<GyroOffsets>
+	getGyroOffsets();
+
+	bool
+	setGyroOffsets(GyroOffsets offsets);
+
+	/// Perform accelerometer fast offset compensation.
+	///
+	/// Keep the board stationary in the orientation matching \p target.
+	bool
+	performAccelFoc(AccelFocTarget target);
+
+	/// Perform gyroscope fast offset compensation.
+	///
+	/// Keep the board stationary while this function runs.
+	bool
+	performGyroFoc();
+
+	std::optional<PowerConfiguration_t>
+	getPowerConfiguration();
+
+	bool
+	setPowerConfiguration(PowerConfiguration_t configuration);
+
+	std::optional<PowerControl_t>
+	getPowerControl();
+
+	bool
+	sendCommand(Command command);
 
 	bool
 	setAccRate(AccRate rate);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Christopher Durand
+ * Copyright (c) 2026, Henrik Hose
  *
  * This file is part of the modm project.
  *

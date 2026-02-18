@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026, Christopher Durand
+ * Copyright (c) 2026, Henrik Hose
  *
  * This file is part of the modm project.
  *
@@ -23,34 +23,38 @@ using Imu = modm::Bmi270<Transport>;
 
 Imu imu{static_cast<uint8_t>(0x68)};
 
-int main()
+int
+main()
 {
 	Board::initialize();
 	Leds::setOutput();
 	I2c::connect<Scl::Scl, Sda::Sda>(I2c::PullUps::Internal);
 	I2c::initialize<Board::SystemClock, 100_kHz, 10_pct>();
 
-	MODM_LOG_INFO << "BMI270 I2C Test\n";
+	MODM_LOG_INFO << "BMI270 CRT test (I2C)\n";
 
 	while (!imu.initialize()) {
-		MODM_LOG_ERROR << "Initialization failed, retrying ...\n";
+		MODM_LOG_ERROR << "Initialization failed, retrying...\n";
 		modm::delay(500ms);
+	}
+
+	MODM_LOG_INFO << "Keep sensor stationary. Starting CRT...\n";
+	if (imu.doCrt()) {
+		MODM_LOG_INFO << "CRT completed successfully\n";
+	}
+	else {
+		MODM_LOG_ERROR << "CRT failed\n";
+	}
+
+	if (const auto crt = imu.getGyroCrtConfig()) {
+		MODM_LOG_INFO.printf("CRT status: running=%u ready_for_download=%u\n",
+							 crt->running, crt->readyForDownload);
 	}
 
 	while (true)
 	{
-		if (imu.readAccDataReady() and imu.readGyroDataReady()) {
-			const auto data = imu.readData();
-			if (data) {
-				const modm::Vector3f acc = data->acc.getFloat();
-				const modm::Vector3f gyro = data->gyro.getFloat();
-				MODM_LOG_INFO.printf("Acc  [mg]\tx: %6.1f\ty: %6.1f\tz: %6.1f\n", acc[0], acc[1], acc[2]);
-				MODM_LOG_INFO.printf("Gyro [deg/s]\tx: %6.2f\ty: %6.2f\tz: %6.2f\n", gyro[0], gyro[1], gyro[2]);
-			}
-		}
-
 		Board::LedGreen::toggle();
-		modm::delay(100ms);
+		modm::delay(250ms);
 	}
 
 	return 0;

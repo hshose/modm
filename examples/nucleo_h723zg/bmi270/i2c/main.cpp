@@ -9,6 +9,8 @@
  */
 // ----------------------------------------------------------------------------
 
+#include <atomic>
+#include <cstdint>
 #include <modm/board.hpp>
 #include <modm/driver/inertial/bmi270.hpp>
 
@@ -18,109 +20,92 @@ using I2c = I2cMaster1;
 using Scl = GpioB8;  // D15
 using Sda = GpioB9;  // D14
 
-using Int1 = GpioD15;// D8
-using Int2 = GpioF3;// D9
+using Int1 = GpioD15;  // D8
+using Int2 = GpioF3;   // D9
 
 using Transport = modm::Bmi270I2cTransport<I2c>;
 using Imu = modm::Bmi270<Transport>;
 
 Imu imu{static_cast<uint8_t>(0x68)};
 
-void
-printDriverState()
+std::atomic<uint32_t> accInterruptCount{0};
+std::atomic<uint32_t> gyroInterruptCount{0};
+
+std::atomic<int32_t> accX{0};
+std::atomic<int32_t> accY{0};
+std::atomic<int32_t> accZ{0};
+
+std::atomic<int32_t> gyroX{0};
+std::atomic<int32_t> gyroY{0};
+std::atomic<int32_t> gyroZ{0};
+
+std::atomic_flag imuBusLock = ATOMIC_FLAG_INIT;
+
+bool
+tryLockImuBus()
 {
-	if (const auto chipId = imu.getChipId()) {
-		MODM_LOG_INFO.printf("Chip ID: 0x%02x\n", *chipId);
+	return !imuBusLock.test_and_set(std::memory_order_acquire);
+}
+
+void
+unlockImuBus()
+{
+	imuBusLock.clear(std::memory_order_release);
+}
+
+void
+onAccInterrupt()
+{
+	accInterruptCount.fetch_add(1, std::memory_order_relaxed);
+	if (!tryLockImuBus()) {
+		return;
 	}
-	if (const auto errors = imu.getErrors()) {
-		MODM_LOG_INFO.printf("Errors: fatal=%u internal=0x%02x fifo=%u aux=%u\n",
-							 errors->fatalError, errors->internalError, errors->fifoError, errors->auxError);
+
+	const auto data = imu.readAccData();
+	unlockImuBus();
+	if (!data) {
+		return;
 	}
-	if (const auto status = imu.getStatus()) {
-		MODM_LOG_INFO.printf("Status: acc=%u gyro=%u aux=%u cmd=%u auxBusy=%u\n",
-							 status->accDataReady, status->gyroDataReady, status->auxDataReady,
-							 status->commandReady, status->auxBusy);
+
+	accX.store(data->raw[0], std::memory_order_relaxed);
+	accY.store(data->raw[1], std::memory_order_relaxed);
+	accZ.store(data->raw[2], std::memory_order_relaxed);
+}
+
+void
+onGyroInterrupt()
+{
+	gyroInterruptCount.fetch_add(1, std::memory_order_relaxed);
+	if (!tryLockImuBus()) {
+		return;
 	}
-	if (const auto internalStatus = imu.getInternalStatus()) {
-		MODM_LOG_INFO.printf("Internal Status: msg=%u remapErr=%u odr50Err=%u\n",
-							 static_cast<uint8_t>(internalStatus->message),
-							 internalStatus->axesRemapError, internalStatus->odr50HzError);
+
+	const auto data = imu.readGyroData();
+	unlockImuBus();
+	if (!data) {
+		return;
 	}
-	if (const auto temperature = imu.getTemperature()) {
-		if (temperature->valid) {
-			MODM_LOG_INFO.printf("Temperature: %.2f C\n", temperature->celsius);
-		}
-		else {
-			MODM_LOG_INFO << "Temperature: invalid\n";
-		}
-	}
-	if (const auto interruptStatus = imu.getInterruptStatus()) {
-		MODM_LOG_INFO.printf("Interrupt Status: ff=%u fwm=%u err=%u aux=%u gyro=%u acc=%u\n",
-							 interruptStatus->fifoFull, interruptStatus->fifoWatermark,
-							 interruptStatus->error, interruptStatus->auxDataReady,
-							 interruptStatus->gyroDataReady, interruptStatus->accDataReady);
-	}
-	if (const auto intMapData = imu.getInterruptMapData()) {
-		MODM_LOG_INFO.printf("INT map: int1(drdy=%u,err=%u) int2(drdy=%u,err=%u)\n",
-							 intMapData->int1DataReady, intMapData->int1Error,
-							 intMapData->int2DataReady, intMapData->int2Error);
-	}
-	if (const auto powerConf = imu.getPowerConfiguration()) {
-		MODM_LOG_INFO.printf("Power Config: 0x%02x\n", powerConf->value);
-	}
-	if (const auto powerCtrl = imu.getPowerControl()) {
-		MODM_LOG_INFO.printf("Power Ctrl: 0x%02x\n", powerCtrl->value);
-	}
-	if (const auto internalError = imu.getInternalError()) {
-		MODM_LOG_INFO.printf("Internal Error: long=%u fatal=%u featDisabled=%u\n",
-							 internalError->longProcessingTime,
-							 internalError->fatalError,
-							 internalError->featureEngineDisabled);
-	}
-	if (const auto pullUp = imu.getPullUpConfiguration()) {
-		MODM_LOG_INFO.printf("Pull-up config: %u\n", static_cast<uint8_t>(*pullUp));
-	}
-	if (const auto gyroCrt = imu.getGyroCrtConfig()) {
-		MODM_LOG_INFO.printf("Gyro CRT: running=%u ready=%u\n",
-							 gyroCrt->running, gyroCrt->readyForDownload);
-	}
-	if (const auto nvmCrt = imu.getNvmCrtEnabled()) {
-		MODM_LOG_INFO.printf("NVM CRT: %u\n", *nvmCrt);
-	}
-	if (const auto ifConf = imu.getInterfaceConfig()) {
-		MODM_LOG_INFO.printf("IF conf: spi=%u oisSpi=%u ois=%u aux=%u\n",
-							 static_cast<uint8_t>(ifConf->primarySpiMode),
-							 static_cast<uint8_t>(ifConf->oisSpiMode),
-							 ifConf->oisEnabled, ifConf->auxEnabled);
-	}
-	if (const auto drv = imu.getDriveConfig()) {
-		MODM_LOG_INFO.printf("Drive: d1=%u b1=%u d2=%u b2=%u\n",
-							 static_cast<uint8_t>(drv->ioPadDrv1), drv->ioPadI2cBoost1,
-							 static_cast<uint8_t>(drv->ioPadDrv2), drv->ioPadI2cBoost2);
-	}
-	if (const auto accOffsets = imu.getAccOffsets()) {
-		MODM_LOG_INFO.printf("Acc offsets: x=%u y=%u z=%u\n",
-							 accOffsets->x, accOffsets->y, accOffsets->z);
-	}
-	if (const auto gyroOffsets = imu.getGyroOffsets()) {
-		MODM_LOG_INFO.printf("Gyro offsets: x=%u y=%u z=%u offEn=%u gainEn=%u\n",
-							 gyroOffsets->x, gyroOffsets->y, gyroOffsets->z,
-							 gyroOffsets->offsetEnabled, gyroOffsets->gainEnabled);
-	}
+
+	gyroX.store(data->raw[0], std::memory_order_relaxed);
+	gyroY.store(data->raw[1], std::memory_order_relaxed);
+	gyroZ.store(data->raw[2], std::memory_order_relaxed);
 }
 
 bool
 configureDriver()
 {
+	Int1::setInput(Int1::InputType::PullDown);
+	Int2::setInput(Int2::InputType::PullDown);
+
 	while (!imu.initialize()) {
-		MODM_LOG_ERROR << "Initialization failed, retrying ...\n";
-		modm::delay(500ms);
+		MODM_LOG_ERROR << "Initialization failed, retrying ..." << modm::endl;
+		modm::this_fiber::sleep_for(500ms);
 	}
 
 	bool ok = true;
-	ok &= imu.setAccRate(Imu::AccRate::Rate100Hz_Normal);
+	ok &= imu.setAccRate(Imu::AccRate::Rate50Hz_Normal);
 	ok &= imu.setAccRange(Imu::AccRange::Range2g);
-	ok &= imu.setGyroRate(Imu::GyroRate::Rate100Hz_Normal);
+	ok &= imu.setGyroRate(Imu::GyroRate::Rate1600Hz_Normal);
 	ok &= imu.setGyroRange(Imu::GyroRange::Range2000dps);
 
 	Imu::InterruptIoControl int1{};
@@ -133,7 +118,7 @@ configureDriver()
 	Imu::InterruptIoControl int2{};
 	int2.level = Imu::InterruptOutputLevel::ActiveHigh;
 	int2.outputType = Imu::InterruptOutputType::PushPull;
-	int2.outputEnable = false;
+	int2.outputEnable = true;
 	int2.inputEnable = false;
 	ok &= imu.setInt2IoControl(int2);
 
@@ -141,49 +126,13 @@ configureDriver()
 
 	Imu::InterruptMapData intMap{};
 	intMap.int1DataReady = true;
-	intMap.int1Error = true;
+	intMap.int2DataReady = true;
 	ok &= imu.setInterruptMapData(intMap);
-
-	Imu::ErrorInterruptMask errMask{};
-	errMask.fatalError = true;
-	errMask.internalError = true;
-	errMask.fifoError = true;
-	errMask.auxError = true;
-	ok &= imu.setErrorInterruptMask(errMask);
 
 	ok &= imu.setPowerControl(
 		Imu::PowerControl::Accelerometer |
 		Imu::PowerControl::Gyroscope |
 		Imu::PowerControl::Temperature);
-
-	if (const auto powerConf = imu.getPowerConfiguration()) {
-		ok &= imu.setPowerConfiguration(*powerConf);
-	}
-	if (const auto pullUp = imu.getPullUpConfiguration()) {
-		ok &= imu.setPullUpConfiguration(*pullUp);
-	}
-	if (const auto gyroCrt = imu.getGyroCrtConfig()) {
-		Imu::GyroCrtConfig config{};
-		config.running = gyroCrt->running;
-		ok &= imu.setGyroCrtConfig(config);
-	}
-	if (const auto nvmCrt = imu.getNvmCrtEnabled()) {
-		ok &= imu.setNvmCrtEnabled(*nvmCrt);
-	}
-	if (const auto ifConf = imu.getInterfaceConfig()) {
-		ok &= imu.setInterfaceConfig(*ifConf);
-	}
-	if (const auto drv = imu.getDriveConfig()) {
-		ok &= imu.setDriveConfig(*drv);
-	}
-	if (const auto accOffsets = imu.getAccOffsets()) {
-		ok &= imu.setAccOffsets(*accOffsets);
-	}
-	if (const auto gyroOffsets = imu.getGyroOffsets()) {
-		ok &= imu.setGyroOffsets(*gyroOffsets);
-	}
-
-	ok &= imu.sendCommand(Imu::Command::FlushFifo);
 	return ok;
 }
 
@@ -192,41 +141,83 @@ int main()
 	Board::initialize();
 	Leds::setOutput();
 	I2c::connect<Scl::Scl, Sda::Sda>(I2c::PullUps::Internal);
-	I2c::initialize<Board::SystemClock, 400_kHz, 10_pct>();
+	I2c::initialize<Board::SystemClock, 1_MHz, 10_pct>();
 
-	MODM_LOG_INFO << "BMI270 I2C Test\n";
+	MODM_LOG_INFO << "BMI270 I2C interrupt example" << modm::endl;
 
 	if (!configureDriver()) {
-		MODM_LOG_ERROR << "Configuration failed!\n";
+		MODM_LOG_ERROR << "Configuration failed!" << modm::endl;
 	}
-	printDriverState();
 
-	uint32_t counter = 0;
+	Exti::connect<Int1>(Exti::Trigger::RisingEdge, [](auto){
+		onAccInterrupt();
+	});
+	Exti::connect<Int2>(Exti::Trigger::RisingEdge, [](auto){
+		onGyroInterrupt();
+	});
+
 	while (true)
 	{
-		if (imu.readAccDataReady() and imu.readGyroDataReady()) {
-			const auto data = imu.readData();
-			if (data) {
-				const modm::Vector3f acc = data->acc.getFloat();
-				const modm::Vector3f gyro = data->gyro.getFloat();
-				MODM_LOG_INFO.printf("Acc  [mg]\tx: %6.1f\ty: %6.1f\tz: %6.1f\n", acc[0], acc[1], acc[2]);
-				MODM_LOG_INFO.printf("Gyro [deg/s]\tx: %6.2f\ty: %6.2f\tz: %6.2f\n", gyro[0], gyro[1], gyro[2]);
-			}
+		modm::this_fiber::sleep_for(1s);
+
+		const uint32_t accCount = accInterruptCount.exchange(0, std::memory_order_relaxed);
+		const uint32_t gyroCount = gyroInterruptCount.exchange(0, std::memory_order_relaxed);
+
+		Imu::AccData accData{};
+		accData.raw = modm::Vector3i(
+			accX.load(std::memory_order_relaxed),
+			accY.load(std::memory_order_relaxed),
+			accZ.load(std::memory_order_relaxed));
+		accData.range = Imu::AccRange::Range2g;
+
+		Imu::GyroData gyroData{};
+		gyroData.raw = modm::Vector3i(
+			gyroX.load(std::memory_order_relaxed),
+			gyroY.load(std::memory_order_relaxed),
+			gyroZ.load(std::memory_order_relaxed));
+		gyroData.range = Imu::GyroRange::Range2000dps;
+
+		const modm::Vector3f acc = accData.getFloat();
+		const modm::Vector3f gyro = gyroData.getFloat();
+
+		std::optional<Imu::Temperature> temperature;
+		std::optional<Imu::SensorStatus> status;
+		while (!tryLockImuBus()) {
+			modm::this_fiber::sleep_for(50us);
 		}
-		if ((counter % 10u) == 0u) {
-			if (const auto temperature = imu.getTemperature(); temperature and temperature->valid) {
-				MODM_LOG_INFO.printf("Temp [C]: %.2f\n", temperature->celsius);
-			}
-			if (const auto interruptStatus = imu.getInterruptStatus(); interruptStatus) {
-				MODM_LOG_INFO.printf("Int drdy(acc=%u gyro=%u) err=%u\n",
-									 interruptStatus->accDataReady, interruptStatus->gyroDataReady,
-									 interruptStatus->error);
-			}
+		temperature = imu.getTemperature();
+		status = imu.getStatus();
+		unlockImuBus();
+
+		MODM_LOG_INFO << "Acc  [mg]    x: " << acc[0]
+					  << " y: " << acc[1]
+					  << " z: " << acc[2] << modm::endl;
+		MODM_LOG_INFO << "Gyro [deg/s] x: " << gyro[0]
+					  << " y: " << gyro[1]
+					  << " z: " << gyro[2] << modm::endl;
+		MODM_LOG_INFO << "Interrupts in last 1s: acc=" << accCount
+					  << " gyro=" << gyroCount << modm::endl;
+
+		if (temperature and temperature->valid) {
+			MODM_LOG_INFO << "Temperature [C]: " << temperature->celsius << modm::endl;
+		}
+		else {
+			MODM_LOG_INFO << "Temperature: invalid" << modm::endl;
 		}
 
+		if (status) {
+			MODM_LOG_INFO << "Status: acc=" << status->accDataReady
+						  << " gyro=" << status->gyroDataReady
+						  << " aux=" << status->auxDataReady
+						  << " cmd=" << status->commandReady
+						  << " auxBusy=" << status->auxBusy << modm::endl;
+		}
+		else {
+			MODM_LOG_INFO << "Status: unavailable" << modm::endl;
+		}
+		MODM_LOG_INFO << modm::endl;
+
 		Board::LedGreen::toggle();
-		modm::delay(100ms);
-		++counter;
 	}
 
 	return 0;

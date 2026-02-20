@@ -324,6 +324,40 @@ struct bmi270
 		int8_t z;
 	};
 
+	enum class FifoFilterData : uint8_t
+	{
+		Unfiltered = 0x00,
+		Filtered = 0x01
+	};
+
+	struct FifoDownsampling
+	{
+		uint8_t gyroDownsampling;
+		FifoFilterData gyroFilterData;
+		uint8_t accDownsampling;
+		FifoFilterData accFilterData;
+	};
+
+	enum class FifoTagInterrupt : uint8_t
+	{
+		Edge = 0x00,
+		Level = 0x01,
+		AccSaturation = 0x02,
+		GyroSaturation = 0x03
+	};
+
+	struct FifoConfiguration
+	{
+		bool stopOnFull;
+		bool timeEnable;
+		FifoTagInterrupt tagInt1;
+		FifoTagInterrupt tagInt2;
+		bool headerEnable;
+		bool auxEnable;
+		bool accEnable;
+		bool gyroEnable;
+	};
+
 	struct Temperature
 	{
 		bool valid;
@@ -355,30 +389,35 @@ extern modm::accessor::Flash<uint8_t> configuration;
 /// @ingroup modm_driver_bmi270
 struct Bmi270TransportBase
 {
-	enum class Register : uint8_t
-	{
-		ChipId = 0x00,
-		Error = 0x02,
-		Status = 0x03,
-		AccDataXLow = 0x0C,
-		GyroDataXLow = 0x12,
-		SensorTime0 = 0x18,
-		InterruptStatus0 = 0x1C,
-		InterruptStatus1 = 0x1D,
-		InternalStatus = 0x21,
-		Temperature0 = 0x22,
-		FeatPage = 0x2F,
-		Features = 0x30,
-		AccConf = 0x40,
-		AccRange = 0x41,
-		GyroConf = 0x42,
-		GyroRange = 0x43,
-		ErrRegMask = 0x52,
-		Int1IoCtrl = 0x53,
-		Int2IoCtrl = 0x54,
-		IntLatch = 0x55,
-		IntMapData = 0x58,
-		InitControl = 0x59,
+		enum class Register : uint8_t
+		{
+			ChipId = 0x00,
+			Error = 0x02,
+			Status = 0x03,
+			AccDataXLow = 0x0C,
+			GyroDataXLow = 0x12,
+			SensorTime0 = 0x18,
+			InterruptStatus0 = 0x1C,
+			InterruptStatus1 = 0x1D,
+			InternalStatus = 0x21,
+			Temperature0 = 0x22,
+			FifoLength0 = 0x24,
+			FifoData = 0x26,
+			FeatPage = 0x2F,
+			Features = 0x30,
+			AccConf = 0x40,
+			AccRange = 0x41,
+			GyroConf = 0x42,
+			GyroRange = 0x43,
+			FifoDowns = 0x45,
+			FifoWtm0 = 0x46,
+			FifoConfig0 = 0x48,
+			ErrRegMask = 0x52,
+			Int1IoCtrl = 0x53,
+			Int2IoCtrl = 0x54,
+			IntLatch = 0x55,
+			IntMapData = 0x58,
+			InitControl = 0x59,
 		InitAddress0 = 0x5B,
 		InitAddress1 = 0x5C,
 		InitData = 0x5E,
@@ -404,11 +443,13 @@ struct Bmi270TransportBase
 /// @ingroup modm_driver_bmi270
 template<typename T>
 concept Bmi270Transport = requires(T& transport, Bmi270TransportBase::Register reg, uint8_t count,
-								   uint8_t data, const std::array<uint8_t, 2>& values) {
+								   uint8_t data, const std::array<uint8_t, 2>& values,
+								   std::array<uint8_t, 4>& fifoData) {
 	{ transport.initialize() };
 	{ transport.readRegisters(reg, count) } -> std::same_as<std::span<uint8_t>>;
 	{ transport.writeRegister(reg, data) } -> std::same_as<bool>;
 	{ transport.writeRegisters(reg, std::span{values}) } -> std::same_as<bool>;
+	{ transport.readFifoData(std::span<uint8_t>{fifoData}) } -> std::same_as<bool>;
 };
 
 /**
@@ -440,6 +481,9 @@ public:
 
 	bool
 	writeRegisters(Register startReg, std::span<const uint8_t> data);
+
+	bool
+	readFifoData(std::span<uint8_t> data);
 
 private:
 	static constexpr uint8_t ReadFlag{0x80};
@@ -475,6 +519,9 @@ public:
 
 	bool
 	writeRegisters(Register startReg, std::span<const uint8_t> data);
+
+	bool
+	readFifoData(std::span<uint8_t> data);
 
 private:
 	std::array<uint8_t, MaxRegisterSequence + 1> buffer_{};
@@ -691,6 +738,32 @@ public:
 	/// Enable/disable sensor power domains.
 	bool
 	setPowerControl(PowerControl_t control);
+
+	std::optional<uint16_t>
+	getFifoLength();
+
+	std::optional<FifoDownsampling>
+	getFifoDownsampling();
+
+	bool
+	setFifoDownsampling(FifoDownsampling configuration);
+
+	std::optional<uint16_t>
+	getFifoWatermark();
+
+	bool
+	setFifoWatermark(uint16_t watermark);
+
+	std::optional<FifoConfiguration>
+	getFifoConfiguration();
+
+	bool
+	setFifoConfiguration(FifoConfiguration configuration);
+
+	/// Read all currently available FIFO bytes into \p buffer.
+	/// @return Number of bytes read on success.
+	std::optional<uint16_t>
+	readFifo(std::span<uint8_t> buffer);
 
 	bool
 	flushFifo();

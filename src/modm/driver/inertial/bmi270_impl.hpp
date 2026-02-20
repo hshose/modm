@@ -80,6 +80,39 @@ Bmi270SpiTransport<SpiMaster, Cs>::writeRegisters(Register startReg,
 	return true;
 }
 
+template<typename SpiMaster, typename Cs>
+bool
+Bmi270SpiTransport<SpiMaster, Cs>::readFifoData(std::span<uint8_t> data)
+{
+	if (data.empty()) {
+		return true;
+	}
+
+	modm::this_fiber::poll([&]{ return this->acquireMaster(); });
+	Cs::reset();
+
+	const std::array<uint8_t, 2> header{
+		uint8_t(static_cast<uint8_t>(Register::FifoData) | ReadFlag),
+		0u};
+	std::array<uint8_t, 2> discard{};
+	SpiMaster::transfer(header.data(), discard.data(), header.size());
+
+	std::size_t offset = 0;
+	while (offset < data.size())
+	{
+		const std::size_t chunk = std::min<std::size_t>(data.size() - offset, MaxRegisterSequence);
+		std::fill_n(txBuffer_.begin(), chunk, 0);
+		SpiMaster::transfer(txBuffer_.data(), data.data() + offset, chunk);
+		offset += chunk;
+	}
+
+	if (this->releaseMaster()) {
+		Cs::set();
+	}
+
+	return true;
+}
+
 // I2C transport -------------------------------------------------------------------------------
 
 template<typename I2cMaster>
@@ -130,6 +163,18 @@ Bmi270I2cTransport<I2cMaster>::writeRegisters(Register startReg,
 	buffer_[0] = static_cast<uint8_t>(startReg);
 	std::copy(data.begin(), data.end(), buffer_.begin() + 1);
 	return I2cDevice<I2cMaster>::write(buffer_.data(), data.size() + 1);
+}
+
+template<typename I2cMaster>
+bool
+Bmi270I2cTransport<I2cMaster>::readFifoData(std::span<uint8_t> data)
+{
+	if (data.empty()) {
+		return true;
+	}
+
+	uint8_t reg = static_cast<uint8_t>(Register::FifoData);
+	return I2cDevice<I2cMaster>::writeRead(&reg, 1, data.data(), data.size());
 }
 
 // Driver --------------------------------------------------------------------------------------
@@ -1755,6 +1800,174 @@ Bmi270<Transport>::setPowerControl(PowerControl_t control)
 	const bool ok = this->writeRegister(Register::PowerCtrl, control.value);
 	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
+}
+
+template<Bmi270Transport Transport>
+std::optional<uint16_t>
+Bmi270<Transport>::getFifoLength()
+{
+	static constexpr uint8_t FifoLengthMsbMask{0x3F};
+
+	const auto data = this->readRegisters(Register::FifoLength0, 2);
+	if (data.empty()) {
+		return {};
+	}
+
+	return uint16_t(uint16_t(data[0]) | (uint16_t(data[1] & FifoLengthMsbMask) << 8));
+}
+
+template<Bmi270Transport Transport>
+std::optional<bmi270::FifoDownsampling>
+Bmi270<Transport>::getFifoDownsampling()
+{
+	static constexpr uint8_t GyroDownsamplingMask{0x07};
+	static constexpr uint8_t GyroFilterMask{0x08};
+	static constexpr uint8_t AccDownsamplingMask{0x70};
+	static constexpr uint8_t AccFilterMask{0x80};
+
+	const auto value = readRegister(Register::FifoDowns);
+	if (!value) {
+		return {};
+	}
+
+	return FifoDownsampling{
+		.gyroDownsampling = uint8_t(*value & GyroDownsamplingMask),
+		.gyroFilterData = (*value & GyroFilterMask) ? FifoFilterData::Filtered : FifoFilterData::Unfiltered,
+		.accDownsampling = uint8_t((*value & AccDownsamplingMask) >> 4),
+		.accFilterData = (*value & AccFilterMask) ? FifoFilterData::Filtered : FifoFilterData::Unfiltered,
+	};
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::setFifoDownsampling(FifoDownsampling configuration)
+{
+	if ((configuration.gyroDownsampling > 0x07) or (configuration.accDownsampling > 0x07)) {
+		return false;
+	}
+
+	uint8_t value = uint8_t(configuration.gyroDownsampling & 0x07);
+	if (configuration.gyroFilterData == FifoFilterData::Filtered) {
+		value |= 0x08;
+	}
+	value |= uint8_t((configuration.accDownsampling & 0x07) << 4);
+	if (configuration.accFilterData == FifoFilterData::Filtered) {
+		value |= 0x80;
+	}
+
+	const bool ok = this->writeRegister(Register::FifoDowns, value);
+	modm::this_fiber::sleep_for(WriteTimeout);
+	return ok;
+}
+
+template<Bmi270Transport Transport>
+std::optional<uint16_t>
+Bmi270<Transport>::getFifoWatermark()
+{
+	const auto data = this->readRegisters(Register::FifoWtm0, 2);
+	if (data.empty()) {
+		return {};
+	}
+
+	return uint16_t(uint16_t(data[0]) | (uint16_t(data[1]) << 8));
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::setFifoWatermark(uint16_t watermark)
+{
+	const std::array<uint8_t, 2> data{
+		uint8_t(watermark & 0xFF),
+		uint8_t((watermark >> 8) & 0xFF),
+	};
+	const bool ok = this->writeRegisters(Register::FifoWtm0, std::span{data});
+	modm::this_fiber::sleep_for(WriteTimeout);
+	return ok;
+}
+
+template<Bmi270Transport Transport>
+std::optional<bmi270::FifoConfiguration>
+Bmi270<Transport>::getFifoConfiguration()
+{
+	static constexpr uint8_t StopOnFullMask{0x01};
+	static constexpr uint8_t TimeEnableMask{0x02};
+	static constexpr uint8_t TagInt1Mask{0x03};
+	static constexpr uint8_t TagInt2Mask{0x0C};
+	static constexpr uint8_t HeaderEnableMask{0x10};
+	static constexpr uint8_t AuxEnableMask{0x20};
+	static constexpr uint8_t AccEnableMask{0x40};
+	static constexpr uint8_t GyroEnableMask{0x80};
+
+	const auto data = this->readRegisters(Register::FifoConfig0, 2);
+	if (data.empty()) {
+		return {};
+	}
+
+	const uint8_t config0 = data[0];
+	const uint8_t config1 = data[1];
+	return FifoConfiguration{
+		.stopOnFull = bool(config0 & StopOnFullMask),
+		.timeEnable = bool(config0 & TimeEnableMask),
+		.tagInt1 = static_cast<FifoTagInterrupt>(config1 & TagInt1Mask),
+		.tagInt2 = static_cast<FifoTagInterrupt>((config1 & TagInt2Mask) >> 2),
+		.headerEnable = bool(config1 & HeaderEnableMask),
+		.auxEnable = bool(config1 & AuxEnableMask),
+		.accEnable = bool(config1 & AccEnableMask),
+		.gyroEnable = bool(config1 & GyroEnableMask),
+	};
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::setFifoConfiguration(FifoConfiguration configuration)
+{
+	uint8_t config0 = 0;
+	if (configuration.stopOnFull) {
+		config0 |= 0x01;
+	}
+	if (configuration.timeEnable) {
+		config0 |= 0x02;
+	}
+
+	uint8_t config1 = uint8_t(uint8_t(configuration.tagInt1) & 0x03);
+	config1 |= uint8_t((uint8_t(configuration.tagInt2) & 0x03) << 2);
+	if (configuration.headerEnable) {
+		config1 |= 0x10;
+	}
+	if (configuration.auxEnable) {
+		config1 |= 0x20;
+	}
+	if (configuration.accEnable) {
+		config1 |= 0x40;
+	}
+	if (configuration.gyroEnable) {
+		config1 |= 0x80;
+	}
+
+	const std::array<uint8_t, 2> data{config0, config1};
+	const bool ok = this->writeRegisters(Register::FifoConfig0, std::span{data});
+	modm::this_fiber::sleep_for(WriteTimeout);
+	return ok;
+}
+
+template<Bmi270Transport Transport>
+std::optional<uint16_t>
+Bmi270<Transport>::readFifo(std::span<uint8_t> buffer)
+{
+	const auto length = getFifoLength();
+	if (!length) {
+		return {};
+	}
+
+	if (*length > buffer.size()) {
+		return {};
+	}
+
+	if (!this->readFifoData(buffer.subspan(0, *length))) {
+		return {};
+	}
+
+	return length;
 }
 
 template<Bmi270Transport Transport>

@@ -92,9 +92,6 @@ onDataReadyInterrupt()
 bool
 configureDriver()
 {
-	Int1::setInput(Int1::InputType::PullDown);
-	Int2::setInput(Int2::InputType::PullDown);
-
 	while (!imu.initialize()) {
 		MODM_LOG_ERROR << "Initialization failed, retrying ..." << modm::endl;
 		modm::this_fiber::sleep_for(500ms);
@@ -140,6 +137,9 @@ int main()
 	Leds::setOutput();
 	I2c::connect<Scl::Scl, Sda::Sda>(I2c::PullUps::Internal);
 	I2c::initialize<Board::SystemClock, 1_MHz, 10_pct>();
+	Int1::setInput(Int1::InputType::PullDown);
+	Int2::setInput(Int2::InputType::PullDown);
+
 
 	MODM_LOG_INFO << "BMI270 I2C interrupt example" << modm::endl;
 

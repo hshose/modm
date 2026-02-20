@@ -54,41 +54,39 @@ unlockImuBus()
 }
 
 void
-onAccInterrupt()
+onDataReadyInterrupt()
 {
-	accInterruptCount.fetch_add(1, std::memory_order_relaxed);
 	if (!tryLockImuBus()) {
 		return;
 	}
 
-	const auto data = imu.readAccData();
+	const auto status = imu.getStatus();
+	if (!status) {
+		unlockImuBus();
+		return;
+	}
+
+	if (status->accDataReady) {
+		const auto data = imu.readAccData();
+		if (data) {
+			accInterruptCount.fetch_add(1, std::memory_order_relaxed);
+			accX.store(data->raw[0], std::memory_order_relaxed);
+			accY.store(data->raw[1], std::memory_order_relaxed);
+			accZ.store(data->raw[2], std::memory_order_relaxed);
+		}
+	}
+
+	if (status->gyroDataReady) {
+		const auto data = imu.readGyroData();
+		if (data) {
+			gyroInterruptCount.fetch_add(1, std::memory_order_relaxed);
+			gyroX.store(data->raw[0], std::memory_order_relaxed);
+			gyroY.store(data->raw[1], std::memory_order_relaxed);
+			gyroZ.store(data->raw[2], std::memory_order_relaxed);
+		}
+	}
+
 	unlockImuBus();
-	if (!data) {
-		return;
-	}
-
-	accX.store(data->raw[0], std::memory_order_relaxed);
-	accY.store(data->raw[1], std::memory_order_relaxed);
-	accZ.store(data->raw[2], std::memory_order_relaxed);
-}
-
-void
-onGyroInterrupt()
-{
-	gyroInterruptCount.fetch_add(1, std::memory_order_relaxed);
-	if (!tryLockImuBus()) {
-		return;
-	}
-
-	const auto data = imu.readGyroData();
-	unlockImuBus();
-	if (!data) {
-		return;
-	}
-
-	gyroX.store(data->raw[0], std::memory_order_relaxed);
-	gyroY.store(data->raw[1], std::memory_order_relaxed);
-	gyroZ.store(data->raw[2], std::memory_order_relaxed);
 }
 
 bool
@@ -118,7 +116,7 @@ configureDriver()
 	Imu::InterruptIoControl int2{};
 	int2.level = Imu::InterruptOutputLevel::ActiveHigh;
 	int2.outputType = Imu::InterruptOutputType::PushPull;
-	int2.outputEnable = true;
+	int2.outputEnable = false;
 	int2.inputEnable = false;
 	ok &= imu.setInt2IoControl(int2);
 
@@ -126,7 +124,7 @@ configureDriver()
 
 	Imu::InterruptMapData intMap{};
 	intMap.int1DataReady = true;
-	intMap.int2DataReady = true;
+	intMap.int2DataReady = false;
 	ok &= imu.setInterruptMapData(intMap);
 
 	ok &= imu.setPowerControl(
@@ -150,10 +148,7 @@ int main()
 	}
 
 	Exti::connect<Int1>(Exti::Trigger::RisingEdge, [](auto){
-		onAccInterrupt();
-	});
-	Exti::connect<Int2>(Exti::Trigger::RisingEdge, [](auto){
-		onGyroInterrupt();
+		onDataReadyInterrupt();
 	});
 
 	while (true)
@@ -189,24 +184,25 @@ int main()
 		status = imu.getStatus();
 		unlockImuBus();
 
-		MODM_LOG_INFO << "Acc  [mg]    x: " << acc[0]
-					  << " y: " << acc[1]
-					  << " z: " << acc[2] << modm::endl;
-		MODM_LOG_INFO << "Gyro [deg/s] x: " << gyro[0]
-					  << " y: " << gyro[1]
-					  << " z: " << gyro[2] << modm::endl;
 		MODM_LOG_INFO << "Interrupts in last 1s: acc=" << accCount
 					  << " gyro=" << gyroCount << modm::endl;
 
+		MODM_LOG_INFO << "Latest Values Acc  [mg]    x: " << acc[0]
+					  << " y: " << acc[1]
+					  << " z: " << acc[2] << modm::endl;
+		MODM_LOG_INFO << "Latest Values Gyro [deg/s] x: " << gyro[0]
+					  << " y: " << gyro[1]
+					  << " z: " << gyro[2] << modm::endl;
+
 		if (temperature and temperature->valid) {
-			MODM_LOG_INFO << "Temperature [C]: " << temperature->celsius << modm::endl;
+			MODM_LOG_INFO << "Current Temperature [C]: " << temperature->celsius << modm::endl;
 		}
 		else {
 			MODM_LOG_INFO << "Temperature: invalid" << modm::endl;
 		}
 
 		if (status) {
-			MODM_LOG_INFO << "Status: acc=" << status->accDataReady
+			MODM_LOG_INFO << "Current Status: acc=" << status->accDataReady
 						  << " gyro=" << status->gyroDataReady
 						  << " aux=" << status->auxDataReady
 						  << " cmd=" << status->commandReady

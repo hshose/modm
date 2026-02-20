@@ -23,7 +23,6 @@
 #include <modm/architecture/interface/spi_device.hpp>
 #include <modm/math/geometry/vector3.hpp>
 #include <modm/processing/fiber.hpp>
-#include <modm/processing/timer/timeout.hpp>
 #include <optional>
 #include <span>
 
@@ -297,6 +296,34 @@ struct bmi270
 		bool gainEnabled;
 	};
 
+	struct GyroGainUpdate
+	{
+		/// GYR_GAIN_UPD_1 @ feature register 0x36, bits [10:0] (1.10 fixed-point).
+		uint16_t ratioX;
+		/// GYR_GAIN_UPD_2 @ feature register 0x38, bits [10:0] (1.10 fixed-point).
+		uint16_t ratioY;
+		/// GYR_GAIN_UPD_3 @ feature register 0x3A, bits [10:0] (1.10 fixed-point).
+		uint16_t ratioZ;
+		/// GYR_GAIN_UPD_3 bit 11 enable bit (applies all 3 gain ratios).
+		/// This bit is auto-cleared by the IMU once the update command completes.
+		bool enable;
+	};
+
+	struct GyroGainStatus
+	{
+		bool saturationX;
+		bool saturationY;
+		bool saturationZ;
+		uint8_t triggerStatus;
+	};
+
+	struct GyroUserGain
+	{
+		int8_t x;
+		int8_t y;
+		int8_t z;
+	};
+
 	struct Temperature
 	{
 		bool valid;
@@ -365,6 +392,7 @@ struct Bmi270TransportBase
 		Offset0 = 0x71,
 		Offset3 = 0x74,
 		Offset6 = 0x77,
+		GyroUserGain0 = 0x78,
 		PowerConf = 0x7C,
 		PowerCtrl = 0x7D,
 		Command = 0x7E
@@ -594,6 +622,36 @@ public:
 	bool
 	setGyroOffsets(GyroOffsets offsets);
 
+	/// Read gyroscope user-gain update ratios from volatile feature memory:
+	/// GYR_GAIN_UPD_1/2/3 at 0x36/0x38/0x3A (feature page 1).
+	std::optional<GyroGainUpdate>
+	getGyroGainUpdate();
+
+	/// Write gyroscope user-gain update ratios to volatile feature memory:
+	/// GYR_GAIN_UPD_1/2/3 at 0x36/0x38/0x3A (feature page 1).
+	///
+	/// Ratio fields use bits [10:0] (1.10 fixed-point), valid range: 0x000..0x7FF.
+	/// Enable uses bit 11 of GYR_GAIN_UPD_3.
+	bool
+	setGyroGainUpdate(GyroGainUpdate update);
+
+	/// Read user-gain update status from feature output memory.
+	std::optional<GyroGainStatus>
+	getGyroGainStatus();
+
+	/// Read compensated gyroscope user-gain values.
+	std::optional<GyroUserGain>
+	getGyroUserGain();
+
+	/// Trigger manual user-gain update (`CMD=usr_gain`) using the values in
+	/// @ref GyroGainUpdate.
+	///
+	/// The function disables gyroscope power, waits for completion
+	/// (`GyroGainUpdate.enable -> 0`), optionally enables gain compensation and
+	/// restores previous gyro power state.
+	bool
+	applyGyroGainUpdate(bool enableCompensation = true);
+
 	/// Perform accelerometer fast offset compensation.
 	///
 	/// Keep the board stationary in the orientation matching \p target.
@@ -642,7 +700,7 @@ private:
 
 	static constexpr std::chrono::microseconds WriteTimeout{2};
 	static constexpr std::chrono::microseconds PowerModeTimeout{450};
-	static constexpr std::chrono::milliseconds ResetTimeout{2};
+	static constexpr std::chrono::milliseconds ResetTimeout{45};
 	static constexpr std::chrono::milliseconds ConfigLoadTimeout{20};
 
 	static constexpr uint8_t ChipId{0x24};
@@ -670,10 +728,15 @@ private:
 	bool
 	enableSensors();
 
+	bool
+	readFeaturePage(uint8_t page, std::array<uint8_t, 16>& data);
+
+	bool
+	writeFeaturePage(uint8_t page, const std::array<uint8_t, 16>& data);
+
 	std::optional<uint8_t>
 	readRegister(Register reg);
 
-	modm::PreciseTimeout timer_;
 	AccRange accRange_{AccRange::Range2g};
 	GyroRange gyroRange_{GyroRange::Range2000dps};
 };

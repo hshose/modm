@@ -392,9 +392,8 @@ Bmi270<Transport>::setErrorInterruptMask(ErrorInterruptMask mask)
 		value |= 0x80;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::ErrRegMask, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -433,9 +432,8 @@ Bmi270<Transport>::setInt1IoControl(InterruptIoControl control)
 		value |= 0x10;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::Int1IoCtrl, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -474,9 +472,8 @@ Bmi270<Transport>::setInt2IoControl(InterruptIoControl control)
 		value |= 0x10;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::Int2IoCtrl, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -496,9 +493,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setInterruptLatch(InterruptLatch mode)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::IntLatch, static_cast<uint8_t>(mode));
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -553,9 +549,8 @@ Bmi270<Transport>::setInterruptMapData(InterruptMapData map)
 		value |= 0x80;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::IntMapData, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -597,9 +592,8 @@ Bmi270<Transport>::setPullUpConfiguration(PullUpConfiguration configuration)
 	}
 
 	const uint8_t value = (*current & ~0x03u) | (static_cast<uint8_t>(configuration) & 0x03u);
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::AuxIfTrim, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -623,9 +617,8 @@ bool
 Bmi270<Transport>::setGyroCrtConfig(GyroCrtConfig configuration)
 {
 	const uint8_t value = configuration.running ? 0x04 : 0x00;
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::GyroCrtConf, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -658,9 +651,8 @@ Bmi270<Transport>::setNvmCrtEnabled(bool enable)
 		value &= ~0x02u;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::NvmConf, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -699,12 +691,10 @@ Bmi270<Transport>::doCrt(std::span<const uint8_t> configFile)
 	static constexpr uint16_t CrtMaxBurstWords{255};
 
 	auto readFeaturePage = [&](uint8_t page, std::array<uint8_t, FeaturePageSize>& data) -> bool {
-		timer_.wait();
 		if (!this->writeRegister(Register::FeatPage, page)) {
 			return false;
 		}
-		timer_.restart(WriteTimeout);
-		timer_.wait();
+		modm::this_fiber::sleep_for(WriteTimeout);
 		const auto pageData = this->readRegisters(Register::Features, FeaturePageSize);
 		if (pageData.empty()) {
 			return false;
@@ -714,14 +704,12 @@ Bmi270<Transport>::doCrt(std::span<const uint8_t> configFile)
 	};
 
 	auto writeFeaturePage = [&](uint8_t page, const std::array<uint8_t, FeaturePageSize>& data) -> bool {
-		timer_.wait();
 		if (!this->writeRegister(Register::FeatPage, page)) {
 			return false;
 		}
-		timer_.restart(WriteTimeout);
-		timer_.wait();
+		modm::this_fiber::sleep_for(WriteTimeout);
 		const bool ok = this->writeRegisters(Register::Features, std::span{data});
-		timer_.restart(WriteTimeout);
+		modm::this_fiber::sleep_for(WriteTimeout);
 		return ok;
 	};
 
@@ -788,8 +776,7 @@ Bmi270<Transport>::doCrt(std::span<const uint8_t> configFile)
 			if (!crtConf->running) {
 				return true;
 			}
-			timer_.restart(CrtRunningDelay);
-			timer_.wait();
+			modm::this_fiber::sleep_for(CrtRunningDelay);
 		}
 		return false;
 	};
@@ -804,8 +791,7 @@ Bmi270<Transport>::doCrt(std::span<const uint8_t> configFile)
 			if (crtConf->readyForDownload != previous) {
 				return crtConf->running;
 			}
-			timer_.restart(CrtReadyDelay);
-			timer_.wait();
+			modm::this_fiber::sleep_for(CrtReadyDelay);
 		}
 		return false;
 	};
@@ -838,8 +824,7 @@ Bmi270<Transport>::doCrt(std::span<const uint8_t> configFile)
 		if (!this->writeRegisters(Register::InitData, bytes)) {
 			return false;
 		}
-		timer_.restart(WriteTimeout);
-		timer_.wait();
+		modm::this_fiber::sleep_for(WriteTimeout);
 		return true;
 	};
 
@@ -916,8 +901,7 @@ Bmi270<Transport>::doCrt(std::span<const uint8_t> configFile)
 	}
 
 	if (ok) {
-		timer_.restart(1ms);
-		timer_.wait();
+		modm::this_fiber::sleep_for(1ms);
 		ok &= setAbortFeature(false);
 	}
 
@@ -1058,9 +1042,8 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 			value &= ~NvAccOffsetMask;
 		}
 
-		timer_.wait();
 		const bool ok = this->writeRegister(Register::NvConf, value);
-		timer_.restart(WriteTimeout);
+		modm::this_fiber::sleep_for(WriteTimeout);
 		return ok;
 	};
 
@@ -1080,9 +1063,8 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 
 	ok &= setAccelOffsetCompensation(false);
 	if (ok) {
-		timer_.wait();
 		ok &= this->writeRegister(Register::AccConf, FocAccConfValue);
-		timer_.restart(WriteTimeout);
+		modm::this_fiber::sleep_for(WriteTimeout);
 	}
 
 	if (ok) {
@@ -1106,8 +1088,7 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 			bool ready = false;
 			for (uint8_t retry = 0; retry < DataReadyRetries; ++retry)
 			{
-				timer_.restart(DataReadyDelay);
-				timer_.wait();
+				modm::this_fiber::sleep_for(DataReadyDelay);
 				const auto status = readRegister(Register::Status);
 				if (status and (*status & uint8_t(Status::AccDataReady))) {
 					ready = true;
@@ -1190,12 +1171,10 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 		}
 	}
 
-	timer_.wait();
 	restoreOk &= this->writeRegister(Register::AccConf, savedAccConf);
-	timer_.restart(WriteTimeout);
-	timer_.wait();
+	modm::this_fiber::sleep_for(WriteTimeout);
 	restoreOk &= this->writeRegister(Register::AccRange, savedAccRange);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	restoreOk &= setPowerControl(*savedPowerControl);
 	if (apsWasEnabled) {
 		restoreOk &= setAdvancedPowerSave(true);
@@ -1229,9 +1208,8 @@ Bmi270<Transport>::performGyroFoc()
 			value &= ~GyroOffsetEnableMask;
 		}
 
-		timer_.wait();
 		const bool ok = this->writeRegister(Register::Offset6, value);
-		timer_.restart(WriteTimeout);
+		modm::this_fiber::sleep_for(WriteTimeout);
 		return ok;
 	};
 
@@ -1252,10 +1230,9 @@ Bmi270<Transport>::performGyroFoc()
 
 	ok &= setGyroOffsetCompensation(false);
 	if (ok) {
-		timer_.wait();
 		const std::array<uint8_t, 2> focConfig{FocGyroConfValue, FocGyroRangeValue};
 		ok &= this->writeRegisters(Register::GyroConf, std::span{focConfig});
-		timer_.restart(WriteTimeout);
+		modm::this_fiber::sleep_for(WriteTimeout);
 	}
 
 	if (ok) {
@@ -1276,8 +1253,7 @@ Bmi270<Transport>::performGyroFoc()
 
 		for (uint8_t sample = 0; sample < FocSampleCount; ++sample)
 		{
-			timer_.restart(DataReadyDelay);
-			timer_.wait();
+			modm::this_fiber::sleep_for(DataReadyDelay);
 
 			const auto status = readRegister(Register::Status);
 			if (!status or ((*status & uint8_t(Status::GyroDataReady)) == 0)) {
@@ -1318,12 +1294,10 @@ Bmi270<Transport>::performGyroFoc()
 		}
 	}
 
-	timer_.wait();
 	restoreOk &= this->writeRegister(Register::GyroConf, savedGyroConf);
-	timer_.restart(WriteTimeout);
-	timer_.wait();
+	modm::this_fiber::sleep_for(WriteTimeout);
 	restoreOk &= this->writeRegister(Register::GyroRange, savedGyroRange);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	restoreOk &= setPowerControl(*savedPowerControl);
 	if (apsWasEnabled) {
 		restoreOk &= setAdvancedPowerSave(true);
@@ -1368,9 +1342,8 @@ Bmi270<Transport>::setInterfaceConfig(InterfaceConfig configuration)
 		value |= 0x20;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::IfConf, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1404,9 +1377,8 @@ Bmi270<Transport>::setDriveConfig(DriveConfig configuration)
 		value |= 0x80;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::Drv, value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1431,9 +1403,8 @@ bool
 Bmi270<Transport>::setAccOffsets(AccOffsets offsets)
 {
 	const std::array<uint8_t, 3> data{offsets.x, offsets.y, offsets.z};
-	timer_.wait();
 	const bool ok = this->writeRegisters(Register::Offset0, std::span{data});
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1473,10 +1444,224 @@ Bmi270<Transport>::setGyroOffsets(GyroOffsets offsets)
 		data[3] |= 0x80;
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegisters(Register::Offset3, std::span{data});
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
+}
+
+template<Bmi270Transport Transport>
+std::optional<bmi270::GyroGainUpdate>
+Bmi270<Transport>::getGyroGainUpdate()
+{
+	static constexpr uint8_t FeaturePage1{1};
+	static constexpr uint8_t FeatureRegisterBase{0x30};
+	static constexpr uint8_t GyroGainUpd1Address{0x36};
+	static constexpr uint8_t GyroGainUpd2Address{0x38};
+	static constexpr uint8_t GyroGainUpd3Address{0x3A};
+	static constexpr uint8_t RatioOffsetX{GyroGainUpd1Address - FeatureRegisterBase};
+	static constexpr uint8_t RatioOffsetY{GyroGainUpd2Address - FeatureRegisterBase};
+	static constexpr uint8_t RatioOffsetZ{GyroGainUpd3Address - FeatureRegisterBase};
+	static constexpr uint8_t EnableOffset{uint8_t(RatioOffsetZ + 1)};
+	static constexpr uint16_t RatioMask{0x07FF};
+	// Bit 11 of GYR_GAIN_UPD_3 (0x3A) lives in the MSB byte at offset +1, bit3.
+	static constexpr uint8_t EnableMask{0x08};
+	static_assert(RatioOffsetX == 6 and RatioOffsetY == 8 and RatioOffsetZ == 10 and EnableOffset == 11);
+
+	std::array<uint8_t, 16> featurePage{};
+	if (!readFeaturePage(FeaturePage1, featurePage)) {
+		return {};
+	}
+
+	const uint16_t ratioX = uint16_t(featurePage[RatioOffsetX]) |
+							(uint16_t(featurePage[RatioOffsetX + 1]) << 8);
+	const uint16_t ratioY = uint16_t(featurePage[RatioOffsetY]) |
+							(uint16_t(featurePage[RatioOffsetY + 1]) << 8);
+	const uint16_t ratioZ = uint16_t(featurePage[RatioOffsetZ]) |
+							(uint16_t(featurePage[RatioOffsetZ + 1]) << 8);
+
+	return GyroGainUpdate{
+		.ratioX = uint16_t(ratioX & RatioMask),
+		.ratioY = uint16_t(ratioY & RatioMask),
+		.ratioZ = uint16_t(ratioZ & RatioMask),
+		.enable = bool(featurePage[EnableOffset] & EnableMask),
+	};
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::setGyroGainUpdate(GyroGainUpdate update)
+{
+	static constexpr uint8_t FeaturePage1{1};
+	static constexpr uint8_t FeatureRegisterBase{0x30};
+	static constexpr uint8_t GyroGainUpd1Address{0x36};
+	static constexpr uint8_t GyroGainUpd2Address{0x38};
+	static constexpr uint8_t GyroGainUpd3Address{0x3A};
+	static constexpr uint8_t RatioOffsetX{GyroGainUpd1Address - FeatureRegisterBase};
+	static constexpr uint8_t RatioOffsetY{GyroGainUpd2Address - FeatureRegisterBase};
+	static constexpr uint8_t RatioOffsetZ{GyroGainUpd3Address - FeatureRegisterBase};
+	static constexpr uint8_t EnableOffset{uint8_t(RatioOffsetZ + 1)};
+	static constexpr uint16_t RatioMask{0x07FF};
+	// Bit 11 of GYR_GAIN_UPD_3 (0x3A) lives in the MSB byte at offset +1, bit3.
+	static constexpr uint8_t EnableMask{0x08};
+	static_assert(RatioOffsetX == 6 and RatioOffsetY == 8 and RatioOffsetZ == 10 and EnableOffset == 11);
+
+	if ((update.ratioX > RatioMask) or (update.ratioY > RatioMask) or (update.ratioZ > RatioMask)) {
+		return false;
+	}
+
+	std::array<uint8_t, 16> featurePage{};
+	if (!readFeaturePage(FeaturePage1, featurePage)) {
+		return false;
+	}
+
+	auto setRatioWord = [&](uint8_t offset, uint16_t ratio) {
+		uint16_t word = uint16_t(featurePage[offset]) | (uint16_t(featurePage[offset + 1]) << 8);
+		word = uint16_t((word & ~RatioMask) | (ratio & RatioMask));
+		featurePage[offset] = uint8_t(word & 0xFF);
+		featurePage[offset + 1] = uint8_t((word >> 8) & 0xFF);
+	};
+
+	setRatioWord(RatioOffsetX, update.ratioX);
+	setRatioWord(RatioOffsetY, update.ratioY);
+	setRatioWord(RatioOffsetZ, update.ratioZ);
+
+	if (update.enable) {
+		featurePage[EnableOffset] |= EnableMask;
+	}
+	else {
+		featurePage[EnableOffset] &= ~EnableMask;
+	}
+
+	return writeFeaturePage(FeaturePage1, featurePage);
+}
+
+template<Bmi270Transport Transport>
+std::optional<bmi270::GyroGainStatus>
+Bmi270<Transport>::getGyroGainStatus()
+{
+	static constexpr uint8_t FeaturePage0{0};
+	static constexpr uint8_t StatusOffset{8};
+	static constexpr uint8_t SaturationXMask{0x01};
+	static constexpr uint8_t SaturationYMask{0x02};
+	static constexpr uint8_t SaturationZMask{0x04};
+	static constexpr uint8_t TriggerStatusMask{0x38};
+	static constexpr uint8_t TriggerStatusShift{3};
+
+	std::array<uint8_t, 16> featurePage{};
+	if (!readFeaturePage(FeaturePage0, featurePage)) {
+		return {};
+	}
+
+	const uint8_t value = featurePage[StatusOffset];
+	return GyroGainStatus{
+		.saturationX = bool(value & SaturationXMask),
+		.saturationY = bool(value & SaturationYMask),
+		.saturationZ = bool(value & SaturationZMask),
+		.triggerStatus = uint8_t((value & TriggerStatusMask) >> TriggerStatusShift),
+	};
+}
+
+template<Bmi270Transport Transport>
+std::optional<bmi270::GyroUserGain>
+Bmi270<Transport>::getGyroUserGain()
+{
+	static constexpr uint8_t UserGainMask{0x7F};
+
+	const auto data = this->readRegisters(Register::GyroUserGain0, 3);
+	if (data.empty()) {
+		return {};
+	}
+
+	return GyroUserGain{
+		.x = int8_t(data[0] & UserGainMask),
+		.y = int8_t(data[1] & UserGainMask),
+		.z = int8_t(data[2] & UserGainMask),
+	};
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::applyGyroGainUpdate(bool enableCompensation)
+{
+	static constexpr uint8_t GyroEnableMask{0x02};
+	static constexpr uint8_t GyroGainEnableMask{0x80};
+	static constexpr uint8_t MaxPollCount{100};
+	static constexpr std::chrono::milliseconds PollDelay{10};
+
+	bool ok = true;
+	bool restoreOk = true;
+
+	const auto savedPowerControl = getPowerControl();
+	const auto savedPowerConfiguration = getPowerConfiguration();
+	if (!savedPowerControl or !savedPowerConfiguration) {
+		return false;
+	}
+
+	const bool apsWasEnabled = bool(*savedPowerConfiguration & PowerConfiguration::AdvancedPowerSave);
+	if (apsWasEnabled) {
+		ok &= setAdvancedPowerSave(false);
+	}
+
+	if (ok) {
+		auto gainUpdate = getGyroGainUpdate();
+		if (!gainUpdate) {
+			ok = false;
+		}
+		else {
+			gainUpdate->enable = true;
+			ok &= setGyroGainUpdate(*gainUpdate);
+		}
+	}
+
+	if (ok) {
+		PowerControl_t powerControl{savedPowerControl->value};
+		powerControl.value &= ~GyroEnableMask;
+		ok &= setPowerControl(powerControl);
+	}
+
+	if (ok) {
+		ok &= sendCommand(Command::ApplyUserGain);
+	}
+
+	if (ok) {
+		bool completed = false;
+		for (uint8_t count = 0; count < MaxPollCount; ++count)
+		{
+			modm::this_fiber::sleep_for(PollDelay);
+
+			const auto gainUpdate = getGyroGainUpdate();
+			if (!gainUpdate) {
+				ok = false;
+				break;
+			}
+			if (!gainUpdate->enable) {
+				completed = true;
+				break;
+			}
+		}
+
+		if (!completed) {
+			ok = false;
+		}
+	}
+
+	if (ok and enableCompensation) {
+		const auto offset6 = readRegister(Register::Offset6);
+		if (!offset6) {
+			ok = false;
+		}
+		else {
+			ok &= this->writeRegister(Register::Offset6, uint8_t(*offset6 | GyroGainEnableMask));
+			modm::this_fiber::sleep_for(WriteTimeout);
+		}
+	}
+
+	restoreOk &= setPowerControl(*savedPowerControl);
+	if (apsWasEnabled) {
+		restoreOk &= setAdvancedPowerSave(true);
+	}
+
+	return ok and restoreOk;
 }
 
 template<Bmi270Transport Transport>
@@ -1495,9 +1680,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setPowerConfiguration(PowerConfiguration_t configuration)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::PowerConf, configuration.value);
-	timer_.restart(PowerModeTimeout);
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 	return ok;
 }
 
@@ -1517,9 +1701,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::sendCommand(Command command)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::Command, static_cast<uint8_t>(command));
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1527,9 +1710,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setAccRate(AccRate rate)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::AccConf, static_cast<uint8_t>(rate));
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1537,9 +1719,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setAccRange(AccRange range)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::AccRange, static_cast<uint8_t>(range));
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	if (ok) {
 		accRange_ = range;
 	}
@@ -1550,9 +1731,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setGyroRate(GyroRate rate)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::GyroConf, static_cast<uint8_t>(rate));
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1560,9 +1740,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setGyroRange(GyroRange range)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::GyroRange, static_cast<uint8_t>(range));
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	if (ok) {
 		gyroRange_ = range;
 	}
@@ -1573,9 +1752,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::setPowerControl(PowerControl_t control)
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::PowerCtrl, control.value);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1583,9 +1761,8 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::flushFifo()
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::Command, FifoFlushCommand);
-	timer_.restart(WriteTimeout);
+	modm::this_fiber::sleep_for(WriteTimeout);
 	return ok;
 }
 
@@ -1601,14 +1778,12 @@ template<Bmi270Transport Transport>
 bool
 Bmi270<Transport>::reset()
 {
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::Command, SoftResetCommand);
-	timer_.restart(ResetTimeout);
+	modm::this_fiber::sleep_for(ResetTimeout);
 	if (!ok) {
 		return false;
 	}
 
-	timer_.wait();
 	Transport::initialize();
 	return true;
 }
@@ -1621,12 +1796,10 @@ Bmi270<Transport>::uploadConfig(std::span<const uint8_t> configFile)
 		return false;
 	}
 
-	timer_.wait();
 	if (!this->writeRegister(Register::InitControl, InitControlLoadDisabled)) {
 		return false;
 	}
-	timer_.restart(PowerModeTimeout);
-	timer_.wait();
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 
 	constexpr std::size_t maxChunkSize = Transport::MaxRegisterSequence & ~std::size_t{1};
 	if constexpr (maxChunkSize == 0) {
@@ -1657,15 +1830,13 @@ Bmi270<Transport>::uploadConfig(std::span<const uint8_t> configFile)
 		}
 
 		offset += chunkSize;
-		timer_.restart(WriteTimeout);
-		timer_.wait();
+		modm::this_fiber::sleep_for(WriteTimeout);
 	}
 
 	if (!this->writeRegister(Register::InitControl, InitControlLoadEnabled)) {
 		return false;
 	}
-	timer_.restart(ConfigLoadTimeout);
-	timer_.wait();
+	modm::this_fiber::sleep_for(ConfigLoadTimeout);
 
 	const uint8_t internalStatus = readRegister(Register::InternalStatus).value_or(0);
 	return (internalStatus & 0x07) == InternalStatusInitOk;
@@ -1679,12 +1850,10 @@ Bmi270<Transport>::uploadConfig(modm::accessor::Flash<uint8_t> configFile, std::
 		return false;
 	}
 
-	timer_.wait();
 	if (!this->writeRegister(Register::InitControl, InitControlLoadDisabled)) {
 		return false;
 	}
-	timer_.restart(PowerModeTimeout);
-	timer_.wait();
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 
 	constexpr std::size_t maxChunkSize = Transport::MaxRegisterSequence & ~std::size_t{1};
 	if constexpr (maxChunkSize == 0) {
@@ -1720,15 +1889,13 @@ Bmi270<Transport>::uploadConfig(modm::accessor::Flash<uint8_t> configFile, std::
 		}
 
 		offset += chunkSize;
-		timer_.restart(WriteTimeout);
-		timer_.wait();
+		modm::this_fiber::sleep_for(WriteTimeout);
 	}
 
 	if (!this->writeRegister(Register::InitControl, InitControlLoadEnabled)) {
 		return false;
 	}
-	timer_.restart(ConfigLoadTimeout);
-	timer_.wait();
+	modm::this_fiber::sleep_for(ConfigLoadTimeout);
 
 	const uint8_t internalStatus = readRegister(Register::InternalStatus).value_or(0);
 	return (internalStatus & 0x07) == InternalStatusInitOk;
@@ -1746,9 +1913,8 @@ Bmi270<Transport>::setAdvancedPowerSave(bool enable)
 		value &= ~uint8_t(PowerConfiguration::AdvancedPowerSave);
 	}
 
-	timer_.wait();
 	const bool ok = this->writeRegister(Register::PowerConf, value);
-	timer_.restart(PowerModeTimeout);
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 	return ok;
 }
 
@@ -1760,6 +1926,38 @@ Bmi270<Transport>::enableSensors()
 						  PowerControl::Gyroscope |
 						  PowerControl::Temperature);
 	return setPowerControl(sensors);
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::readFeaturePage(uint8_t page, std::array<uint8_t, 16>& data)
+{
+	if (!this->writeRegister(Register::FeatPage, page)) {
+		return false;
+	}
+	modm::this_fiber::sleep_for(WriteTimeout);
+
+	const auto pageData = this->readRegisters(Register::Features, data.size());
+	if (pageData.empty()) {
+		return false;
+	}
+
+	std::copy_n(pageData.begin(), data.size(), data.begin());
+	return true;
+}
+
+template<Bmi270Transport Transport>
+bool
+Bmi270<Transport>::writeFeaturePage(uint8_t page, const std::array<uint8_t, 16>& data)
+{
+	if (!this->writeRegister(Register::FeatPage, page)) {
+		return false;
+	}
+	modm::this_fiber::sleep_for(WriteTimeout);
+
+	const bool ok = this->writeRegisters(Register::Features, std::span{data});
+	modm::this_fiber::sleep_for(WriteTimeout);
+	return ok;
 }
 
 template<Bmi270Transport Transport>

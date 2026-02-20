@@ -18,6 +18,9 @@ using I2c = I2cMaster1;
 using Scl = GpioB8;  // D15
 using Sda = GpioB9;  // D14
 
+using Int1 = GpioD15;  // D8
+using Int2 = GpioF3;   // D9
+
 using Transport = modm::Bmi270I2cTransport<I2c>;
 using Imu = modm::Bmi270<Transport>;
 
@@ -29,7 +32,7 @@ main()
 	Board::initialize();
 	Leds::setOutput();
 	I2c::connect<Scl::Scl, Sda::Sda>(I2c::PullUps::Internal);
-	I2c::initialize<Board::SystemClock, 100_kHz, 10_pct>();
+	I2c::initialize<Board::SystemClock, 1_MHz, 10_pct>();
 
 	MODM_LOG_INFO << "BMI270 CRT test (I2C)\n";
 

@@ -403,6 +403,10 @@ public:
 	bool
 	initialize(std::span<const uint8_t> configFile = {});
 
+	/// Soft-reset device and wait for reset completion.
+	bool
+	reset();
+
 	/// Read acceleration and gyroscope data and sensor time from one burst read.
 	std::optional<Data>
 	readData();
@@ -653,9 +657,6 @@ private:
 
 	bool
 	checkChipId();
-
-	bool
-	reset();
 
 	bool
 	uploadConfig(std::span<const uint8_t> configFile);

@@ -11,6 +11,7 @@
 
 #include <modm/board.hpp>
 #include <modm/driver/inertial/bmi270.hpp>
+#include <modm/processing.hpp>
 
 using namespace Board;
 
@@ -165,11 +166,16 @@ main()
 
 	MODM_LOG_INFO << "BMI270 calibration example (FOC + CRT + restore)" << modm::endl;
 
+	MODM_LOG_ERROR << "Resetting to zero out any previous calibration values." << modm::endl;
+	if (!imu.reset()) {
+		MODM_LOG_ERROR << "Soft reset command failed" << modm::endl;
+	}
+
 	if (!initializeImu()) {
 		MODM_LOG_ERROR << "Initial IMU configuration failed" << modm::endl;
 	}
 
-	MODM_LOG_INFO << "Keep sensor stable with +Z aligned to gravity" << modm::endl;
+	MODM_LOG_INFO << "FOC: Keep sensor stable with +Z aligned to gravity" << modm::endl;
 
 	Imu::AccelFocTarget accelTarget{};
 	accelTarget.axis = Imu::FocAxis::Z;
@@ -180,6 +186,7 @@ main()
 
 	MODM_LOG_INFO << "FOC result: accel=" << accelFocOk
 				  << " gyro=" << gyroFocOk << modm::endl;
+
 
 	if (const auto userGain = imu.getGyroUserGain()) {
 		printGyroUserGain("Pre-CRT gyro user gain out", *userGain);
@@ -229,10 +236,9 @@ main()
 	// you could save the calibration to reserved flash on the microcontroller now
 
 	MODM_LOG_INFO << "Soft resetting sensor..." << modm::endl;
-	if (!imu.sendCommand(Imu::Command::SoftReset)) {
+	if (!imu.reset()) {
 		MODM_LOG_ERROR << "Soft reset command failed" << modm::endl;
 	}
-	modm::this_fiber::sleep_for(60ms);
 
 	if (!initializeImu()) {
 		MODM_LOG_ERROR << "Re-initialization after reset failed" << modm::endl;
@@ -300,31 +306,60 @@ main()
 	MODM_LOG_INFO << (allMatch ? "Calibration restore PASSED" : "Calibration restore FAILED")
 				  << modm::endl;
 
+	modm::PeriodicTimer printTimer{1s};
+	bool hasSample = false;
+	uint32_t lastSampleTimeUs = 0;
+	float rollDeg = 0.f;
+	float pitchDeg = 0.f;
+	float yawDeg = 0.f;
+	modm::Vector3f lastAcc{};
+	modm::Vector3f lastGyro{};
+
 	while (true)
 	{
 		if (const auto data = imu.readData()) {
-			const auto acc = data->acc.getFloat();
-			const auto gyro = data->gyro.getFloat();
-			MODM_LOG_INFO << "Acc [mg] x=" << acc[0]
-						  << " y=" << acc[1]
-						  << " z=" << acc[2]
-						  << modm::endl;
-			MODM_LOG_INFO << "Gyr [deg/s] x=" << gyro[0]
-						  << " y=" << gyro[1]
-						  << " z=" << gyro[2]
-						  << modm::endl;
-		}
-		else {
-			MODM_LOG_ERROR << "readData failed" << modm::endl;
+			const uint32_t nowUs = modm::PreciseClock::now().time_since_epoch().count();
+			lastAcc = data->acc.getFloat();
+			lastGyro = data->gyro.getFloat();
+
+			if (hasSample) {
+				const uint32_t deltaUs = nowUs - lastSampleTimeUs;
+				const float dtSeconds = float(deltaUs) * 1e-6f;
+				rollDeg += lastGyro[0] * dtSeconds;
+				pitchDeg += lastGyro[1] * dtSeconds;
+				yawDeg += lastGyro[2] * dtSeconds;
+			}
+
+			lastSampleTimeUs = nowUs;
+			hasSample = true;
 		}
 
-		if (allMatch) {
-			Board::LedGreen::toggle();
+		if (printTimer.execute()) {
+			if (hasSample) {
+				MODM_LOG_INFO << "Acc [mg] x=" << lastAcc[0]
+							  << " y=" << lastAcc[1]
+							  << " z=" << lastAcc[2]
+							  << modm::endl;
+				MODM_LOG_INFO << "Gyr [deg/s] x=" << lastGyro[0]
+							  << " y=" << lastGyro[1]
+							  << " z=" << lastGyro[2]
+							  << modm::endl;
+				MODM_LOG_INFO << "Ori [deg] roll=" << rollDeg
+							  << " pitch=" << pitchDeg
+							  << " yaw=" << yawDeg
+							  << modm::endl;
+			}
+			else {
+				MODM_LOG_ERROR << "readData failed (no valid sample yet)" << modm::endl;
+			}
+
+			if (allMatch) {
+				Board::LedGreen::toggle();
+			}
+			else {
+				Board::LedRed::toggle();
+			}
 		}
-		else {
-			Board::LedRed::toggle();
-		}
-		modm::this_fiber::sleep_for(1s);
 	}
 
 	return 0;

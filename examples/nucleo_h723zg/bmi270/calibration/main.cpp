@@ -31,6 +31,7 @@ struct CalibrationSnapshot
 	Imu::AccOffsets accOffsets;
 	Imu::GyroOffsets gyroOffsets;
 	Imu::GyroGainUpdate gyroGain;
+	Imu::GyroUserGain gyroUserGainOut;
 };
 
 bool
@@ -80,7 +81,7 @@ printGyroGain(const char* label, const Imu::GyroGainUpdate& gain)
 {
 	MODM_LOG_INFO.printf(
 		"%s x=0x%03x y=0x%03x z=0x%03x enable=%u\n",
-		label,
+		label,// you could save the calibration to reserved flash on the microcontroller now
 		gain.ratioX,
 		gain.ratioY,
 		gain.ratioZ,
@@ -133,11 +134,30 @@ equalGyroGain(const Imu::GyroGainUpdate& lhs, const Imu::GyroGainUpdate& rhs)
 		   (lhs.enable == rhs.enable);
 }
 
+bool
+equalGyroUserGain(const Imu::GyroUserGain& lhs, const Imu::GyroUserGain& rhs)
+{
+	return (lhs.x == rhs.x) and
+		   (lhs.y == rhs.y) and
+		   (lhs.z == rhs.z);
+}
+
 }  // namespace
 
 int
 main()
 {
+
+	/**
+	 * The BMI270 has a bug in the non-volatile memory that resets the offset
+	 * compensation (foc) values to zero when saving component retrim (crt) values.
+	 * As the non-volatile memory on the BMI270 has a maximum of 5 write cycles
+	 * anyways, this demonstrate how to perform the foc and crt calibration and
+	 * reapply the values from software after resetting the BMI270. The intent
+	 * is to save calibration on the microcontroller side, e.g., to the reserved
+	 * flash section.
+	 */
+
 	Board::initialize();
 	Leds::setOutput();
 	I2c::connect<Scl::Scl, Sda::Sda>(I2c::PullUps::Internal);
@@ -162,7 +182,7 @@ main()
 				  << " gyro=" << gyroFocOk << modm::endl;
 
 	if (const auto userGain = imu.getGyroUserGain()) {
-		printGyroUserGain("CRT gyro user gain out", *userGain);
+		printGyroUserGain("Pre-CRT gyro user gain out", *userGain);
 	}
 
 	MODM_LOG_INFO << "Starting component retrim (CRT)..." << modm::endl;
@@ -185,8 +205,9 @@ main()
 	const auto accOffsets = imu.getAccOffsets();
 	const auto gyroOffsets = imu.getGyroOffsets();
 	const auto gainUpdate = imu.getGyroGainUpdate();
+	const auto userGainOut = imu.getGyroUserGain();
 
-	if (!accOffsets or !gyroOffsets or !gainUpdate) {
+	if (!accOffsets or !gyroOffsets or !gainUpdate or !userGainOut) {
 		MODM_LOG_ERROR << "Reading calibration values failed" << modm::endl;
 		while (true) {
 			Board::LedRed::toggle();
@@ -195,13 +216,17 @@ main()
 	}
 
 	CalibrationSnapshot savedCalibration{};
-	savedCalibration.accOffsets = *accOffsets;
-	savedCalibration.gyroOffsets = *gyroOffsets;
-	savedCalibration.gyroGain = *gainUpdate;
+	savedCalibration.accOffsets   	 = accOffsets.value();
+	savedCalibration.gyroOffsets  	 = gyroOffsets.value();
+	savedCalibration.gyroGain     	 = gainUpdate.value();
+	savedCalibration.gyroUserGainOut = userGainOut.value();
 
 	printAccOffsets("Saved accel offsets", savedCalibration.accOffsets);
 	printGyroOffsets("Saved gyro offsets", savedCalibration.gyroOffsets);
 	printGyroGain("Saved gyro gain", savedCalibration.gyroGain);
+	printGyroUserGain("Saved gyro user gain out", savedCalibration.gyroUserGainOut);
+
+	// you could save the calibration to reserved flash on the microcontroller now
 
 	MODM_LOG_INFO << "Soft resetting sensor..." << modm::endl;
 	if (!imu.sendCommand(Imu::Command::SoftReset)) {
@@ -213,11 +238,16 @@ main()
 		MODM_LOG_ERROR << "Re-initialization after reset failed" << modm::endl;
 	}
 
+	if (const auto userGainBeforeRestore = imu.getGyroUserGain()) {
+		printGyroUserGain("After reset, before restore gyro user gain out", *userGainBeforeRestore);
+	}
+
 	MODM_LOG_INFO << "Restoring saved calibration values..." << modm::endl;
 	bool writeOk = true;
 	writeOk &= imu.setAccOffsets(savedCalibration.accOffsets);
 	writeOk &= imu.setGyroOffsets(savedCalibration.gyroOffsets);
 	writeOk &= imu.setGyroGainUpdate(savedCalibration.gyroGain);
+	writeOk &= imu.setGyroUserGain(savedCalibration.gyroUserGainOut);
 
 	if (!writeOk) {
 		MODM_LOG_ERROR << "Writing calibration values failed" << modm::endl;
@@ -230,6 +260,7 @@ main()
 	bool accMatch = false;
 	bool gyroMatch = false;
 	bool gainMatch = false;
+	bool userGainOutMatch = false;
 
 	if (restoredAccOffsets) {
 		accMatch = equalAccOffsets(savedCalibration.accOffsets, *restoredAccOffsets);
@@ -241,6 +272,11 @@ main()
 		gainMatch = equalGyroGain(savedCalibration.gyroGain, *restoredGainUpdate);
 	}
 
+	const auto restoredUserGain = imu.getGyroUserGain();
+	if (restoredUserGain) {
+		userGainOutMatch = equalGyroUserGain(savedCalibration.gyroUserGainOut, *restoredUserGain);
+	}
+
 	if (restoredAccOffsets) {
 		printAccOffsets("Restored accel offsets", *restoredAccOffsets);
 	}
@@ -250,16 +286,17 @@ main()
 	if (restoredGainUpdate) {
 		printGyroGain("Restored gyro gain", *restoredGainUpdate);
 	}
-	if (const auto restoredUserGain = imu.getGyroUserGain()) {
+	if (restoredUserGain) {
 		printGyroUserGain("Restored gyro user gain out", *restoredUserGain);
 	}
 
 	MODM_LOG_INFO << "Verification: acc=" << accMatch
 				  << " gyro=" << gyroMatch
 				  << " gain=" << gainMatch
+				  << " userGainOut=" << userGainOutMatch
 				  << modm::endl;
 
-	const bool allMatch = writeOk and accMatch and gyroMatch and gainMatch;
+	const bool allMatch = writeOk and accMatch and gyroMatch and gainMatch and userGainOutMatch;
 	MODM_LOG_INFO << (allMatch ? "Calibration restore PASSED" : "Calibration restore FAILED")
 				  << modm::endl;
 

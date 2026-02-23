@@ -552,6 +552,12 @@ public:
 	std::optional<GyroUserGain>
 	getGyroUserGain();
 
+	/// Write compensated gyroscope user-gain values.
+	///
+	/// Values are encoded on 7 bits per axis.
+	bool
+	setGyroUserGain(GyroUserGain gain);
+
 	/// Trigger manual user-gain update (`CMD=usr_gain`) using the values in
 	/// @ref GyroGainUpdate.
 	///

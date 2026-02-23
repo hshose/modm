@@ -1065,7 +1065,8 @@ Bmi270<Transport>::readFeaturePage(uint8_t page, std::array<uint8_t, 16>& data)
 	if (!this->writeRegister(Register::FeatPage, page)) {
 		return false;
 	}
-	modm::this_fiber::sleep_for(WriteTimeout);
+	// Feature-page access requires APS-compatible settling time.
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 
 	const auto pageData = this->readRegisters(Register::Features, data.size());
 	if (pageData.empty()) {
@@ -1083,10 +1084,11 @@ Bmi270<Transport>::writeFeaturePage(uint8_t page, const std::array<uint8_t, 16>&
 	if (!this->writeRegister(Register::FeatPage, page)) {
 		return false;
 	}
-	modm::this_fiber::sleep_for(WriteTimeout);
+	// Feature-page access requires APS-compatible settling time.
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 
 	const bool ok = this->writeRegisters(Register::Features, std::span{data});
-	modm::this_fiber::sleep_for(WriteTimeout);
+	modm::this_fiber::sleep_for(PowerModeTimeout);
 	return ok;
 }
 

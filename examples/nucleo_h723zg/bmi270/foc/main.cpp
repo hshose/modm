@@ -23,13 +23,41 @@ using Imu = modm::Bmi270<Transport>;
 
 Imu imu{static_cast<uint8_t>(0x68)};
 
+bool
+configureDriver()
+{
+	while (!imu.initialize()) {
+		MODM_LOG_ERROR << "Initialization failed, retrying ..." << modm::endl;
+		modm::this_fiber::sleep_for(500ms);
+	}
+
+	bool ok = true;
+	ok &= imu.setAccRate(Imu::AccRate::Rate800Hz_Normal);
+	ok &= imu.setAccRange(Imu::AccRange::Range4g);
+	ok &= imu.setGyroRate(Imu::GyroRate::Rate800Hz_Normal);
+	ok &= imu.setGyroRange(Imu::GyroRange::Range2000dps);
+
+	ok &= imu.setPowerControl(
+		Imu::PowerControl::Accelerometer |
+		Imu::PowerControl::Gyroscope |
+		Imu::PowerControl::Temperature);
+	return ok;
+}
+
 int
 main()
 {
 	Board::initialize();
 	Leds::setOutput();
 	I2c::connect<Scl::Scl, Sda::Sda>(I2c::PullUps::Internal);
-	I2c::initialize<Board::SystemClock, 100_kHz, 10_pct>();
+	I2c::initialize<Board::SystemClock, 1_MHz, 10_pct>();
+
+	MODM_LOG_INFO << "BMI270 I2C calibration example" << modm::endl;
+
+	if (!configureDriver()) {
+		MODM_LOG_ERROR << "Configuration failed!" << modm::endl;
+	}
+
 
 	MODM_LOG_INFO << "BMI270 FOC test (I2C)\n";
 

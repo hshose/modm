@@ -39,4 +39,5 @@ def build(env):
     env.copy("bmi270_transport_impl.hpp")
     env.copy("bmi270.hpp")
     env.copy("bmi270_impl.hpp")
+    env.copy("bmi270_calibration_impl.hpp")
     env.copy("bmi270.cpp")

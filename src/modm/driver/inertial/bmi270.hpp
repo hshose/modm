@@ -500,6 +500,13 @@ public:
 	bool
 	doCrt(std::span<const uint8_t> configFile = {});
 
+	/// Perform component retrim (CRT) and return the downloaded gyro gain update.
+	///
+	/// If no configuration blob is passed, the built-in BMI270 configuration is used.
+	/// On success, returns GYR_GAIN_UPD_[1..3] values read back from feature memory.
+	std::optional<GyroGainUpdate>
+	doCrtAndReadGainUpdate(std::span<const uint8_t> configFile = {});
+
 	std::optional<InterfaceConfig>
 	getInterfaceConfig();
 
@@ -672,5 +679,6 @@ private:
 }  // namespace modm
 
 #include "bmi270_impl.hpp"
+#include "bmi270_calibration_impl.hpp"
 
 #endif  // MODM_BMI270_HPP

@@ -203,14 +203,15 @@ Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 				{
 					seenDone = true;
 				}
-				if (containsPattern(currentLine.data(), currentLineLength, ":/> "))
+				if (containsPattern(currentLine.data(), currentLineLength, ":/>"))
 				{
 					seenPrompt = true;
 				}
 
 				currentLineLength = 0;
 
-				if ((verifyDone and seenDone) or (not verifyDone and (seenDone or seenPrompt)))
+				if ((verifyDone and seenDone and seenPrompt) or
+					(not verifyDone and (seenDone or seenPrompt)))
 				{
 					return true;
 				}
@@ -219,6 +220,12 @@ Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 				if (currentLineLength < currentLine.size() - 1)
 				{
 					currentLine[currentLineLength++] = static_cast<char>(byte);
+					// CLI prompt may arrive without newline terminator.
+					if (containsPattern(currentLine.data(), currentLineLength, ":/>"))
+					{
+						seenPrompt = true;
+						if (verifyDone and seenDone) { return true; }
+					}
 				}
 			}
 		} else if (ControlUart::hasError())

@@ -175,19 +175,6 @@ main()
 		MODM_LOG_ERROR << "Initial IMU configuration failed" << modm::endl;
 	}
 
-	MODM_LOG_INFO << "FOC: Keep sensor stable with +Z aligned to gravity" << modm::endl;
-
-	Imu::AccelFocTarget accelTarget{};
-	accelTarget.axis = Imu::FocAxis::Z;
-	accelTarget.negative = false;
-
-	const bool accelFocOk = imu.performAccelFoc(accelTarget);
-	const bool gyroFocOk = imu.performGyroFoc();
-
-	MODM_LOG_INFO << "FOC result: accel=" << accelFocOk
-				  << " gyro=" << gyroFocOk << modm::endl;
-
-
 	if (const auto userGain = imu.getGyroUserGain()) {
 		printGyroUserGain("Pre-CRT gyro user gain out", *userGain);
 	}
@@ -209,18 +196,27 @@ main()
 		printGyroUserGain("CRT gyro user gain out", *userGain);
 	}
 
-	const auto accOffsets = imu.getAccOffsets();
-	const auto gyroOffsets = imu.getGyroOffsets();
 	const auto gainUpdate = imu.getGyroGainUpdate();
 	const auto userGainOut = imu.getGyroUserGain();
 
-	if (!accOffsets or !gyroOffsets or !gainUpdate or !userGainOut) {
-		MODM_LOG_ERROR << "Reading calibration values failed" << modm::endl;
-		while (true) {
-			Board::LedRed::toggle();
-			modm::this_fiber::sleep_for(250ms);
-		}
-	}
+	
+	MODM_LOG_INFO << "FOC: Keep sensor stable with +Z aligned to gravity" << modm::endl;
+
+	Imu::AccelFocTarget accelTarget{};
+	accelTarget.axis = Imu::FocAxis::Z;
+	accelTarget.negative = false;
+
+	MODM_LOG_INFO << "Accel FOC..." << modm::endl;
+	const bool accelFocOk = imu.performAccelFoc(accelTarget);
+	
+	MODM_LOG_INFO << "Gyro FOC..." << modm::endl;
+	const bool gyroFocOk = imu.performGyroFoc();
+
+	MODM_LOG_INFO << "FOC result: accel=" << accelFocOk
+				  << " gyro=" << gyroFocOk << modm::endl;
+
+	const auto accOffsets = imu.getAccOffsets();
+	const auto gyroOffsets = imu.getGyroOffsets();
 
 	CalibrationSnapshot savedCalibration{};
 	savedCalibration.accOffsets   	 = accOffsets.value();
@@ -232,7 +228,9 @@ main()
 	printGyroOffsets("Saved gyro offsets", savedCalibration.gyroOffsets);
 	printGyroGain("Saved gyro gain", savedCalibration.gyroGain);
 	printGyroUserGain("Saved gyro user gain out", savedCalibration.gyroUserGainOut);
-
+	
+	
+	
 	// you could save the calibration to reserved flash on the microcontroller now
 
 	MODM_LOG_INFO << "Soft resetting sensor..." << modm::endl;

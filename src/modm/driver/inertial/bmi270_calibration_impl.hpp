@@ -559,12 +559,11 @@ Bmi270<Transport>::doCrtAndReadGainUpdate(std::span<const uint8_t> configFile)
 
 template<Bmi270Transport Transport>
 bool
-Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
+Bmi270<Transport>::performAccelFoc(AccelFocTarget target,
+								   uint16_t sampleCount,
+								   std::chrono::microseconds sampleDelay,
+								   AccRate rate)
 {
-	static constexpr uint8_t FocSampleCount{128};
-	static constexpr uint8_t DataReadyRetries{5};
-	static constexpr std::chrono::milliseconds DataReadyDelay{20};
-	static constexpr uint8_t FocAccConfValue{0xB7};
 	static constexpr uint8_t NvAccOffsetMask{0x08};
 
 	auto setAccelOffsetCompensation = [&](bool enable) -> bool {
@@ -589,7 +588,7 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 	const auto savedAcc = this->readRegisters(Register::AccConf, 2);
 	const auto savedPowerControl = getPowerControl();
 	const auto savedPowerConfiguration = getPowerConfiguration();
-	if (savedAcc.empty() or !savedPowerControl or !savedPowerConfiguration) {
+	if ((sampleCount == 0) or savedAcc.empty() or !savedPowerControl or !savedPowerConfiguration) {
 		return false;
 	}
 
@@ -602,7 +601,7 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 
 	ok &= setAccelOffsetCompensation(false);
 	if (ok) {
-		ok &= this->writeRegister(Register::AccConf, FocAccConfValue);
+		ok &= this->writeRegister(Register::AccConf, static_cast<uint8_t>(rate));
 		modm::this_fiber::sleep_for(WriteTimeout);
 	}
 
@@ -616,26 +615,20 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 		ok &= setAdvancedPowerSave(false);
 	}
 
+	modm::this_fiber::sleep_for(std::chrono::seconds(1));
+	
 	Vector3i average{0, 0, 0};
 	if (ok) {
-		int32_t sumX = 0;
-		int32_t sumY = 0;
-		int32_t sumZ = 0;
+		int64_t sumX = 0;
+		int64_t sumY = 0;
+		int64_t sumZ = 0;
 
-		for (uint8_t sample = 0; sample < FocSampleCount; ++sample)
+		for (uint16_t sample = 0; sample < sampleCount; ++sample)
 		{
-			bool ready = false;
-			for (uint8_t retry = 0; retry < DataReadyRetries; ++retry)
-			{
-				modm::this_fiber::sleep_for(DataReadyDelay);
-				const auto status = readRegister(Register::Status);
-				if (status and (*status & uint8_t(Status::AccDataReady))) {
-					ready = true;
-					break;
-				}
-			}
+			modm::this_fiber::sleep_for(sampleDelay);
 
-			if (!ready) {
+			const auto status = readRegister(Register::Status);
+			if (!status or ((*status & uint8_t(Status::AccDataReady)) == 0)) {
 				ok = false;
 				break;
 			}
@@ -652,9 +645,9 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 		}
 
 		if (ok) {
-			average[0] = int(sumX / FocSampleCount);
-			average[1] = int(sumY / FocSampleCount);
-			average[2] = int(sumZ / FocSampleCount);
+			average[0] = int(sumX / sampleCount);
+			average[1] = int(sumY / sampleCount);
+			average[2] = int(sumZ / sampleCount);
 		}
 	}
 
@@ -699,11 +692,10 @@ Bmi270<Transport>::performAccelFoc(AccelFocTarget target)
 
 template<Bmi270Transport Transport>
 bool
-Bmi270<Transport>::performGyroFoc()
+Bmi270<Transport>::performGyroFoc(uint16_t sampleCount,
+								  std::chrono::microseconds sampleDelay,
+								  GyroRate rate)
 {
-	static constexpr uint8_t FocSampleCount{128};
-	static constexpr std::chrono::milliseconds DataReadyDelay{50};
-	static constexpr uint8_t FocGyroConfValue{0xB6};
 	static constexpr uint8_t FocGyroRangeValue{0x00};
 	static constexpr uint8_t GyroOffsetEnableMask{0x40};
 
@@ -730,7 +722,7 @@ Bmi270<Transport>::performGyroFoc()
 	const auto savedPowerControl = getPowerControl();
 	const auto savedPowerConfiguration = getPowerConfiguration();
 	const auto savedOffsets = getGyroOffsets();
-	if (savedGyro.empty() or !savedPowerControl or !savedPowerConfiguration or !savedOffsets) {
+	if ((sampleCount == 0) or savedGyro.empty() or !savedPowerControl or !savedPowerConfiguration or !savedOffsets) {
 		return false;
 	}
 
@@ -743,7 +735,7 @@ Bmi270<Transport>::performGyroFoc()
 
 	ok &= setGyroOffsetCompensation(false);
 	if (ok) {
-		const std::array<uint8_t, 2> focConfig{FocGyroConfValue, FocGyroRangeValue};
+		const std::array<uint8_t, 2> focConfig{static_cast<uint8_t>(rate), FocGyroRangeValue};
 		ok &= this->writeRegisters(Register::GyroConf, std::span{focConfig});
 		modm::this_fiber::sleep_for(WriteTimeout);
 	}
@@ -758,15 +750,17 @@ Bmi270<Transport>::performGyroFoc()
 		ok &= setAdvancedPowerSave(false);
 	}
 
+	modm::this_fiber::sleep_for(std::chrono::seconds(1));
+
 	Vector3i average{0, 0, 0};
 	if (ok) {
-		int32_t sumX = 0;
-		int32_t sumY = 0;
-		int32_t sumZ = 0;
+		int64_t sumX = 0;
+		int64_t sumY = 0;
+		int64_t sumZ = 0;
 
-		for (uint8_t sample = 0; sample < FocSampleCount; ++sample)
+		for (uint16_t sample = 0; sample < sampleCount; ++sample)
 		{
-			modm::this_fiber::sleep_for(DataReadyDelay);
+			modm::this_fiber::sleep_for(sampleDelay);
 
 			const auto status = readRegister(Register::Status);
 			if (!status or ((*status & uint8_t(Status::GyroDataReady)) == 0)) {
@@ -786,9 +780,9 @@ Bmi270<Transport>::performGyroFoc()
 		}
 
 		if (ok) {
-			average[0] = int(sumX / FocSampleCount);
-			average[1] = int(sumY / FocSampleCount);
-			average[2] = int(sumZ / FocSampleCount);
+			average[0] = int(sumX / sampleCount);
+			average[1] = int(sumY / sampleCount);
+			average[2] = int(sumZ / sampleCount);
 		}
 	}
 

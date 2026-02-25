@@ -575,13 +575,18 @@ public:
 	///
 	/// Keep the board stationary in the orientation matching \p target.
 	bool
-	performAccelFoc(AccelFocTarget target);
+	performAccelFoc(AccelFocTarget target,
+					uint16_t sampleCount = 1024,
+					std::chrono::microseconds sampleDelay = std::chrono::microseconds{25'000},
+					AccRate rate = AccRate::Rate50Hz_Normal);
 
 	/// Perform gyroscope fast offset compensation.
 	///
 	/// Keep the board stationary while this function runs.
 	bool
-	performGyroFoc();
+	performGyroFoc(uint16_t sampleCount = 1024,
+				   std::chrono::microseconds sampleDelay = std::chrono::microseconds{25'000},
+				   GyroRate rate = GyroRate::Rate50Hz_Normal);
 
 	std::optional<PowerConfiguration_t>
 	getPowerConfiguration();

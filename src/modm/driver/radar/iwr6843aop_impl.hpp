@@ -74,7 +74,7 @@ bool
 Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 		   MaxParserBufferSize>::configure(std::span<const char> configuration)
 {
-	std::array<char, MaxConfigLineLength> command{};
+	auto &command = configCommandBuffer_;
 	std::size_t commandLength{0};
 
 	auto executeCommand = [&](std::size_t length) -> bool {
@@ -176,7 +176,7 @@ bool
 Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 		   MaxParserBufferSize>::waitForCommandResponse(bool verifyDone, CommandResponse *response)
 {
-	std::array<char, MaxResponseLineLength> currentLine{};
+	auto &currentLine = responseLineBuffer_;
 	std::size_t currentLineLength{0};
 
 	bool seenDone{false};
@@ -254,13 +254,12 @@ Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 {
 	maybeTriggerSyncPulse();
 
-	std::array<uint8_t, DataReadChunkSize> chunk{};
 	while (true)
 	{
-		const auto bytesRead = DataUart::read(chunk.data(), chunk.size());
+		const auto bytesRead = DataUart::read(dataReadChunk_.data(), dataReadChunk_.size());
 		if (bytesRead == 0) { break; }
 
-		if (not appendData(chunk.data(), bytesRead)) { return false; }
+		if (not appendData(dataReadChunk_.data(), bytesRead)) { return false; }
 	}
 
 	if (DataUart::hasError())
@@ -457,8 +456,7 @@ Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 
 		if (parserSize_ < totalPacketLength) { return true; }
 
-		FrameType frame{};
-		if (not parsePacket(parserBuffer_.data(), totalPacketLength, frame))
+		if (not parsePacket(parserBuffer_.data(), totalPacketLength, parserFrame_))
 		{
 			setError(Error::ParseError);
 			if (not registerParseError()) { return false; }
@@ -467,7 +465,7 @@ Iwr6843aop<ControlUart, DataUart, SyncPin, FrameQueueSize, MaxPointsPerFrame,
 		}
 
 		consecutiveParseErrorCount_ = 0;
-		enqueueFrame(frame);
+		enqueueFrame(parserFrame_);
 		dropBytes(totalPacketLength);
 	}
 }

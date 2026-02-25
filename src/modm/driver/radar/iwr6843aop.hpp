@@ -322,6 +322,11 @@ private:
 
 	Error lastError_{Error::None};
 
+	std::array<char, MaxConfigLineLength> configCommandBuffer_{};
+	std::array<char, MaxResponseLineLength> responseLineBuffer_{};
+	std::array<uint8_t, DataReadChunkSize> dataReadChunk_{};
+	FrameType parserFrame_{};
+
 	std::array<uint8_t, MaxParserBufferSize> parserBuffer_{};
 	std::size_t parserSize_{0};
 

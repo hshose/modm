@@ -26,7 +26,8 @@ using DataRx = GpioC11;
 using RadarNrst = GpioC9;
 
 using Radar = modm::Iwr6843aop<ControlUart, DataUart>;
-static Radar radar;
+Radar radar;
+Radar::FrameType radarFrame{};
 
 static constexpr char RadarConfiguration[] = R"cfg(
 sensorStop
@@ -95,7 +96,6 @@ main()
 
 	MODM_LOG_INFO << "Configuration successful\n";
 
-	Radar::FrameType frame{};
 	modm::Timestamp lastFrameTimestamp{};
 	bool hasLastFrameTimestamp{false};
 	uint32_t processedFrames{0};
@@ -110,26 +110,26 @@ main()
 			modm::delay(5ms);
 		}
 
-		while (radar.getFrame(frame))
+		while (radar.getFrame(radarFrame))
 		{
 			processedFrames++;
 			LedGreen::toggle();
 
 			const auto now = modm::Clock::now();
-			const auto age = now - frame.timestamp;
+			const auto age = now - radarFrame.timestamp;
 
 			uint32_t intervalMs{0};
 			if (hasLastFrameTimestamp)
 			{
-				intervalMs = (frame.timestamp - lastFrameTimestamp).count();
+				intervalMs = (radarFrame.timestamp - lastFrameTimestamp).count();
 			}
-			lastFrameTimestamp = frame.timestamp;
+			lastFrameTimestamp = radarFrame.timestamp;
 			hasLastFrameTimestamp = true;
 
 			float maxVelocity{0.f};
-			for (std::size_t ii = 0; ii < frame.pointCount; ++ii)
+			for (std::size_t ii = 0; ii < radarFrame.pointCount; ++ii)
 			{
-				float velocity = frame.points[ii].point.velocity;
+				float velocity = radarFrame.points[ii].point.velocity;
 				if (velocity < 0.f) { velocity = -velocity; }
 				if (velocity > maxVelocity) { maxVelocity = velocity; }
 			}
@@ -137,8 +137,8 @@ main()
 			MODM_LOG_INFO.printf(
 				"Frame #%lu: %lu points detected, age: %lu ms, interval: %lu ms, max velocity: "
 				"%.2f m/s\n",
-				static_cast<unsigned long>(frame.frameHeader.frameNumber),
-				static_cast<unsigned long>(frame.pointCount),
+				static_cast<unsigned long>(radarFrame.frameHeader.frameNumber),
+				static_cast<unsigned long>(radarFrame.pointCount),
 				static_cast<unsigned long>(age.count()), static_cast<unsigned long>(intervalMs),
 				static_cast<double>(maxVelocity));
 

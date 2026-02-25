@@ -15,28 +15,17 @@
 using namespace Board;
 using namespace modm::literals;
 
-using ControlUart = BufferedUart<UsartHal1, UartTxBuffer<512>, UartRxBuffer<512>>;
-using ControlTx = GpioA9;
-using ControlRx = GpioA10;
+using ControlUart = BufferedUart<UsartHal1, UartTxBuffer<1024>, UartRxBuffer<1024>>;
+using ControlTx = GpioB6;
+using ControlRx = GpioB7;
 
-using DataUart = BufferedUart<UartHal4, UartTxBuffer<128>, UartRxBuffer<4096>>;
+using DataUart = BufferedUart<UartHal4, UartTxBuffer<256>, UartRxBuffer<16384>>;
 using DataTx = GpioA0;
-using DataRx = GpioA1;
+using DataRx = GpioC11;
 
 using RadarNrst = GpioC9;
 
-struct DummySyncPin
-{
-	static void
-	set()
-	{}
-	static void
-	reset()
-	{}
-};
-
-using Radar = modm::Iwr6843aop<ControlUart, DataUart, DummySyncPin>;
-
+using Radar = modm::Iwr6843aop<ControlUart, DataUart>;
 static Radar radar;
 
 static constexpr char RadarConfiguration[] = R"cfg(
@@ -81,15 +70,13 @@ main()
 	RadarNrst::setOutput(modm::Gpio::Low);
 	modm::delay(10ms);
 	RadarNrst::set();
-	modm::delay(10ms);
+	modm::delay(100ms);
 
 	ControlUart::connect<ControlTx::Tx, ControlRx::Rx>();
 	DataUart::connect<DataTx::Tx, DataRx::Rx>();
 
 	ControlUart::initialize<Board::SystemClock, 115200_Bd>();
 	DataUart::initialize<Board::SystemClock, 921600_Bd>();
-
-	MODM_LOG_INFO << "uart init\n";
 
 	MODM_LOG_INFO << "IWR6843AOP example\n";
 	MODM_LOG_INFO << "Uploading configuration...\n";

@@ -131,10 +131,17 @@ struct iwr6843aop
 };
 
 /**
- * TI IWR6843AOP radar UART driver.
+ * TI xWRxx4x family radar UART driver.
  *
  * The driver uses one UART for control commands and one UART for streaming
- * point cloud data (TLV packet format).
+ * point cloud data (TLV packet format). It should work for IWR1443, IWR1642,
+ * IWR1843, IWR6443 and IWR6843 and their automotive AWR* counterparts.
+ * The driver was tested with the prebuild binary version xWR64xx MMW Demo 03.06.02.00
+ * on the IWR6843AOP chip.
+ * The binary is contained in the mmWaveSDK distributed at https://www.ti.com/tool/de-de/MMWAVE-SDK
+ * After installation, the sensor binary can be found at
+ * <INDUSTRIAL_TOOLBOX_INSTALL_DIR>\mmwave_industrial_toolbox_<VER>\out_of_box_demo\68xx_aop_mmwave_sdk_hwa\prebuilt_binaries\xwr64xxAOP_mmw_demo.bin
+ * The binary is then flashed using Uniflash: https://www.ti.com/tool/en-us/UNIFLASH
  *
  * @tparam ControlUart UART type for the control channel (CLI)
  * @tparam DataUart UART type for the data channel

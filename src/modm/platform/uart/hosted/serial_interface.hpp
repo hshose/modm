@@ -102,6 +102,8 @@ namespace modm
 			 * - 500'000
 			 * - 576'000
 			 * - 921'600
+			 * - 2'000'000
+			 * - 3'000'000
 			 */
 			bool
 			setBaudRate(unsigned int baudRate);

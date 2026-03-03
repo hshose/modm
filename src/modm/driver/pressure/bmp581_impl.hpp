@@ -27,9 +27,7 @@ template<Bmp581Transport Transport>
 void
 Bmp581<Transport>::waitForCommandGap()
 {
-	if (timer_.isArmed()) {
-		timer_.wait();
-	}
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 }
 
 template<Bmp581Transport Transport>
@@ -84,8 +82,7 @@ Bmp581<Transport>::reset()
 	}
 
 	// Wait for reset to complete (datasheet: 2ms typical)
-	timer_.restart(std::chrono::milliseconds{5});
-	timer_.wait();
+	modm::this_fiber::sleep_for(std::chrono::milliseconds{5});
 
 	// Re-initialize transport (needed for SPI mode)
 	if (!Transport::initialize()) {
@@ -96,7 +93,7 @@ Bmp581<Transport>::reset()
 	// First SPI transaction after reset can be unreliable; discard result
 	(void)readRegister(Register::ChipId);
 
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return true;
 }
 
@@ -150,8 +147,7 @@ Bmp581<Transport>::setPowerMode(PowerMode mode)
 			return false;
 		}
 		// Maximum transition time to STANDBY.
-		timer_.restart(std::chrono::microseconds{2500});
-		timer_.wait();
+		modm::this_fiber::sleep_for(std::chrono::microseconds{2500});
 	}
 
 	if (targetMode != standbyMode) {
@@ -160,7 +156,7 @@ Bmp581<Transport>::setPowerMode(PowerMode mode)
 		}
 	}
 
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return true;
 }
 
@@ -176,7 +172,7 @@ Bmp581<Transport>::setOdr(Odr odr)
 	const uint8_t value = static_cast<uint8_t>(odr) << 2;
 
 	const bool ok = updateRegister(Register::OdrConfig, mask, value);
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return ok;
 }
 
@@ -193,7 +189,7 @@ Bmp581<Transport>::setOversampling(Osr pressOsr, Osr tempOsr, bool enablePressur
 	}
 
 	const bool ok = writeRegister(Register::OsrConfig, value);
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return ok;
 }
 
@@ -215,8 +211,7 @@ Bmp581<Transport>::setIirFilter(IirFilter pressIir, IirFilter tempIir)
 	}
 
 	// Wait for STANDBY transition (tstandby = 2.5ms max per datasheet)
-	timer_.restart(std::chrono::microseconds{2500});
-	waitForCommandGap();
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2500});
 
 	// Temperature IIR at [2:0], Pressure IIR at [5:3]
 	const uint8_t value = (static_cast<uint8_t>(tempIir) << 0) |
@@ -227,7 +222,7 @@ Bmp581<Transport>::setIirFilter(IirFilter pressIir, IirFilter tempIir)
 	// Restore original power mode
 	const bool restoreOk = writeRegister(Register::OdrConfig, *odrConfig);
 
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return iirOk && restoreOk;
 }
 
@@ -242,7 +237,7 @@ Bmp581<Transport>::setIntConfig(IntConfig_t config)
 	                                  uint8_t(IntConfig::OpenDrain) | uint8_t(IntConfig::Enable);
 	const bool ok = updateRegister(Register::IntConfig, intConfigMask, config.value);
 
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return ok;
 }
 
@@ -252,7 +247,7 @@ Bmp581<Transport>::setIntSource(IntSource_t sources)
 {
 	waitForCommandGap();
 	const bool ok = writeRegister(Register::IntSource, sources.value);
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return ok;
 }
 
@@ -277,8 +272,7 @@ Bmp581<Transport>::setFifoConfig(FifoMode mode, FifoFrameSelection frameSelectio
 	if (needsStandbyTransition) {
 		standbyOk = updateRegister(Register::OdrConfig, powerModeMask, standbyMode);
 		if (standbyOk) {
-			timer_.restart(std::chrono::microseconds{2500});
-			timer_.wait();
+			modm::this_fiber::sleep_for(std::chrono::microseconds{2500});
 		}
 	}
 
@@ -312,7 +306,7 @@ Bmp581<Transport>::setFifoConfig(FifoMode mode, FifoFrameSelection frameSelectio
 		restoreOk = writeRegister(Register::OdrConfig, *odrConfig);
 	}
 
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return standbyOk && fifoIirOk && fifoSelOk && fifoModeOk && restoreOk;
 }
 
@@ -337,7 +331,7 @@ Bmp581<Transport>::setFifoWatermark(uint8_t threshold)
 	                              uint8_t(FifoConfig::Threshold4);
 
 	const bool ok = updateRegister(Register::FifoConfig, thresholdMask, threshold);
-	timer_.restart(std::chrono::microseconds{2});
+	modm::this_fiber::sleep_for(std::chrono::microseconds{2});
 	return ok;
 }
 

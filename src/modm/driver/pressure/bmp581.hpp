@@ -19,7 +19,6 @@
 #include <cstdint>
 #include <optional>
 #include <modm/architecture/interface/register.hpp>
-#include <modm/processing/timer/timeout.hpp>
 #include "bmp581_transport.hpp"
 
 namespace modm
@@ -584,7 +583,6 @@ private:
 	bool
 	updateRegister(Register reg, uint8_t mask, uint8_t value);
 
-	modm::PreciseTimeout timer_;
 };
 
 } // namespace modm

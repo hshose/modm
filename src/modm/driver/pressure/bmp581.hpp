@@ -12,8 +12,10 @@
 #ifndef MODM_BMP581_HPP
 #define MODM_BMP581_HPP
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <modm/architecture/interface/register.hpp>
@@ -144,6 +146,35 @@ struct bmp581
 		Coef127 = 0b111, //< Coefficient 127
 	};
 
+	/// FIFO operating mode
+	enum class FifoMode : uint8_t
+	{
+		Streaming  = 0b0,  //< Oldest data is overwritten when FIFO is full
+		StopOnFull = 0b1,  //< Sampling stops when FIFO is full
+	};
+
+	/// FIFO frame selection
+	enum class FifoFrameSelection : uint8_t
+	{
+		Disabled            = 0b00,  //< FIFO data output disabled
+		Temperature         = 0b01,  //< FIFO stores temperature only (3 bytes/frame)
+		Pressure            = 0b10,  //< FIFO stores pressure only (3 bytes/frame)
+		PressureTemperature = 0b11,  //< FIFO stores temperature + pressure (6 bytes/frame)
+	};
+
+	/// FIFO decimation (downsampling) selection
+	enum class FifoDecimation : uint8_t
+	{
+		NoDownsampling = 0b000,  //< Store every sample
+		X2             = 0b001,  //< Store every 2nd sample
+		X4             = 0b010,  //< Store every 4th sample
+		X8             = 0b011,  //< Store every 8th sample
+		X16            = 0b100,  //< Store every 16th sample
+		X32            = 0b101,  //< Store every 32nd sample
+		X64            = 0b110,  //< Store every 64th sample
+		X128           = 0b111,  //< Store every 128th sample
+	};
+
 	/// Status register (0x28) bit definitions
 	enum class Status : uint8_t
 	{
@@ -187,6 +218,29 @@ struct bmp581
 	};
 	MODM_FLAGS8(IntConfig);
 
+	/// FIFO configuration register (0x16) bit definitions
+	enum class FifoConfig : uint8_t
+	{
+		Threshold0  = Bit0,  //< FIFO threshold bit 0
+		Threshold1  = Bit1,  //< FIFO threshold bit 1
+		Threshold2  = Bit2,  //< FIFO threshold bit 2
+		Threshold3  = Bit3,  //< FIFO threshold bit 3
+		Threshold4  = Bit4,  //< FIFO threshold bit 4
+		Mode        = Bit5,  //< FIFO mode
+	};
+	MODM_FLAGS8(FifoConfig);
+
+	/// FIFO selection register (0x18) bit definitions
+	enum class FifoSel : uint8_t
+	{
+		FrameSel0   = Bit0,  //< FIFO frame selection bit 0
+		FrameSel1   = Bit1,  //< FIFO frame selection bit 1
+		DecSel0     = Bit2,  //< FIFO decimation bit 0
+		DecSel1     = Bit3,  //< FIFO decimation bit 1
+		DecSel2     = Bit4,  //< FIFO decimation bit 2
+	};
+	MODM_FLAGS8(FifoSel);
+
 	/// OSR configuration register (0x36) bit definitions
 	enum class OsrConfig : uint8_t
 	{
@@ -221,6 +275,11 @@ struct bmp581
 	/// Configuration types for ODR settings
 	typedef Configuration<OdrConfig_t, PowerMode, (Bit1 | Bit0), 0> PowerMode_t;
 	typedef Configuration<OdrConfig_t, Odr, (Bit6 | Bit5 | Bit4 | Bit3 | Bit2), 2> Odr_t;
+
+	/// Configuration types for FIFO settings
+	typedef Configuration<FifoConfig_t, FifoMode, Bit5, 5> FifoMode_t;
+	typedef Configuration<FifoSel_t, FifoFrameSelection, (Bit1 | Bit0), 0> FifoFrameSelection_t;
+	typedef Configuration<FifoSel_t, FifoDecimation, (Bit4 | Bit3 | Bit2), 2> FifoDecimation_t;
 
 	/// DSP configuration register (0x30) bit definitions
 	enum class DspConfig : uint8_t
@@ -292,6 +351,75 @@ struct bmp581
 		/// Raw pressure data (XLSB, LSB, MSB)
 		std::array<uint8_t, 3> rawPress{};
 	};
+
+	/// Maximum FIFO threshold in frames for pressure-only or temperature-only mode
+	static constexpr uint8_t FifoSingleChannelMaxThreshold = 31;
+
+	/// Maximum FIFO threshold in frames for pressure+temperature mode
+	static constexpr uint8_t FifoCombinedMaxThreshold = 15;
+
+	/// Maximum FIFO frames in pressure-only or temperature-only mode
+	static constexpr uint8_t FifoSingleChannelMaxFrames = 32;
+
+	/// Maximum FIFO frames in pressure+temperature mode
+	static constexpr uint8_t FifoCombinedMaxFrames = 16;
+
+	/// FIFO frame counter mask
+	static constexpr uint8_t FifoCountMask = 0x3F;
+
+	/// Maximum number of bytes that can be read from FIFO in one burst
+	static constexpr std::size_t FifoMaxReadBytes = 96;
+
+	/// Return number of bytes per frame for the selected FIFO frame type
+	static constexpr uint8_t
+	fifoFrameSize(FifoFrameSelection frameSelection)
+	{
+		switch (frameSelection)
+		{
+			case FifoFrameSelection::Temperature:
+			case FifoFrameSelection::Pressure:
+				return 3;
+			case FifoFrameSelection::PressureTemperature:
+				return 6;
+			case FifoFrameSelection::Disabled:
+				return 0;
+		}
+		return 0;
+	}
+
+	/// Return maximum FIFO frame count for selected frame type
+	static constexpr uint8_t
+	fifoMaxFrameCount(FifoFrameSelection frameSelection)
+	{
+		switch (frameSelection)
+		{
+			case FifoFrameSelection::Temperature:
+			case FifoFrameSelection::Pressure:
+				return FifoSingleChannelMaxFrames;
+			case FifoFrameSelection::PressureTemperature:
+				return FifoCombinedMaxFrames;
+			case FifoFrameSelection::Disabled:
+				return 0;
+		}
+		return 0;
+	}
+
+	/// Return maximum valid watermark threshold in frames for selected frame type
+	static constexpr uint8_t
+	fifoMaxWatermark(FifoFrameSelection frameSelection)
+	{
+		switch (frameSelection)
+		{
+			case FifoFrameSelection::Temperature:
+			case FifoFrameSelection::Pressure:
+				return FifoSingleChannelMaxThreshold;
+			case FifoFrameSelection::PressureTemperature:
+				return FifoCombinedMaxThreshold;
+			case FifoFrameSelection::Disabled:
+				return 0;
+		}
+		return 0;
+	}
 
 protected:
 	/// @cond
@@ -388,6 +516,37 @@ public:
 	bool
 	setIntSource(IntSource_t sources);
 
+	/// Configure FIFO mode, frame selection and decimation
+	/// @param mode FIFO mode (streaming or stop-on-full)
+	/// @param frameSelection FIFO frame type
+	/// @param decimation FIFO downsampling factor (default no downsampling)
+	/// @param enablePressureIir Use IIR-filtered pressure samples in FIFO
+	/// @param enableTemperatureIir Use IIR-filtered temperature samples in FIFO
+	/// @return true on success, false on error
+	bool
+	setFifoConfig(FifoMode mode, FifoFrameSelection frameSelection,
+	              FifoDecimation decimation = FifoDecimation::NoDownsampling,
+	              bool enablePressureIir = true, bool enableTemperatureIir = true);
+
+	/// Set FIFO watermark threshold in frames
+	/// @note Maximum threshold depends on FIFO frame selection.
+	/// @return true on success, false on error
+	bool
+	setFifoWatermark(uint8_t threshold);
+
+	/// Read current FIFO frame count
+	/// @return Number of frames currently in FIFO, or std::nullopt on error
+	std::optional<uint8_t>
+	readFifoCount();
+
+	/// Read and decode FIFO frames into Data objects
+	/// @param frames Destination buffer for decoded frames
+	/// @param frameCapacity Number of entries in frames buffer
+	/// @param framesRead Number of frames decoded and written
+	/// @return true on success, false on error
+	bool
+	readFifoData(Data* frames, std::size_t frameCapacity, std::size_t& framesRead);
+
 	/// Read temperature and pressure data
 	/// @param data Reference to Data struct to fill
 	/// @return true on success, false on error
@@ -415,6 +574,9 @@ private:
 
 	std::optional<uint8_t>
 	readRegister(Register reg);
+
+	std::optional<FifoFrameSelection>
+	readFifoFrameSelection();
 
 	bool
 	writeRegister(Register reg, uint8_t value);

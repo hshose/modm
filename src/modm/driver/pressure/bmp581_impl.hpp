@@ -258,6 +258,175 @@ Bmp581<Transport>::setIntSource(IntSource_t sources)
 
 template<Bmp581Transport Transport>
 bool
+Bmp581<Transport>::setFifoConfig(FifoMode mode, FifoFrameSelection frameSelection,
+                                 FifoDecimation decimation,
+                                 bool enablePressureIir, bool enableTemperatureIir)
+{
+	waitForCommandGap();
+
+	const auto odrConfig = readRegister(Register::OdrConfig);
+	if (!odrConfig) {
+		return false;
+	}
+
+	const uint8_t powerModeMask = uint8_t(OdrConfig::Mode0) | uint8_t(OdrConfig::Mode1);
+	const uint8_t standbyMode = static_cast<uint8_t>(PowerMode::Standby);
+	const bool needsStandbyTransition = ((*odrConfig & powerModeMask) != standbyMode);
+
+	bool standbyOk = true;
+	if (needsStandbyTransition) {
+		standbyOk = updateRegister(Register::OdrConfig, powerModeMask, standbyMode);
+		if (standbyOk) {
+			timer_.restart(std::chrono::microseconds{2500});
+			timer_.wait();
+		}
+	}
+
+	const uint8_t fifoIirMask = uint8_t(DspConfig::FifoSelIir_T) | uint8_t(DspConfig::FifoSelIir_P);
+	const uint8_t fifoIirValue = (enableTemperatureIir ? uint8_t(DspConfig::FifoSelIir_T) : 0) |
+	                             (enablePressureIir ? uint8_t(DspConfig::FifoSelIir_P) : 0);
+
+	const uint8_t fifoSelMask = uint8_t(FifoSel::FrameSel0) | uint8_t(FifoSel::FrameSel1) |
+	                            uint8_t(FifoSel::DecSel0) | uint8_t(FifoSel::DecSel1) |
+	                            uint8_t(FifoSel::DecSel2);
+	const uint8_t fifoSelValue = (static_cast<uint8_t>(frameSelection) << 0) |
+	                             (static_cast<uint8_t>(decimation) << 2);
+
+	const uint8_t fifoModeValue = static_cast<uint8_t>(mode) << 5;
+
+	bool fifoIirOk = false;
+	bool fifoSelOk = false;
+	bool fifoModeOk = false;
+	if (standbyOk) {
+		fifoIirOk = updateRegister(Register::DspConfig, fifoIirMask, fifoIirValue);
+		if (fifoIirOk) {
+			fifoSelOk = updateRegister(Register::FifoSel, fifoSelMask, fifoSelValue);
+		}
+		if (fifoSelOk) {
+			fifoModeOk = updateRegister(Register::FifoConfig, uint8_t(FifoConfig::Mode), fifoModeValue);
+		}
+	}
+
+	bool restoreOk = true;
+	if (needsStandbyTransition) {
+		restoreOk = writeRegister(Register::OdrConfig, *odrConfig);
+	}
+
+	timer_.restart(std::chrono::microseconds{2});
+	return standbyOk && fifoIirOk && fifoSelOk && fifoModeOk && restoreOk;
+}
+
+template<Bmp581Transport Transport>
+bool
+Bmp581<Transport>::setFifoWatermark(uint8_t threshold)
+{
+	waitForCommandGap();
+
+	const auto frameSelection = readFifoFrameSelection();
+	if (!frameSelection) {
+		return false;
+	}
+
+	const uint8_t maxThreshold = fifoMaxWatermark(*frameSelection);
+	if ((maxThreshold == 0) || (threshold > maxThreshold)) {
+		return false;
+	}
+
+	const uint8_t thresholdMask = uint8_t(FifoConfig::Threshold0) | uint8_t(FifoConfig::Threshold1) |
+	                              uint8_t(FifoConfig::Threshold2) | uint8_t(FifoConfig::Threshold3) |
+	                              uint8_t(FifoConfig::Threshold4);
+
+	const bool ok = updateRegister(Register::FifoConfig, thresholdMask, threshold);
+	timer_.restart(std::chrono::microseconds{2});
+	return ok;
+}
+
+template<Bmp581Transport Transport>
+std::optional<uint8_t>
+Bmp581<Transport>::readFifoCount()
+{
+	const auto value = readRegister(Register::FifoCount);
+	if (!value) {
+		return std::nullopt;
+	}
+	return (*value & FifoCountMask);
+}
+
+template<Bmp581Transport Transport>
+bool
+Bmp581<Transport>::readFifoData(Data* frames, std::size_t frameCapacity, std::size_t& framesRead)
+{
+	framesRead = 0;
+	if ((frames == nullptr) && (frameCapacity > 0)) {
+		return false;
+	}
+
+	const auto frameSelection = readFifoFrameSelection();
+	if (!frameSelection) {
+		return false;
+	}
+
+	const uint8_t frameSize = fifoFrameSize(*frameSelection);
+	const uint8_t maxFrameCount = fifoMaxFrameCount(*frameSelection);
+	if ((frameSize == 0) || (maxFrameCount == 0)) {
+		return false;
+	}
+
+	const auto fifoCount = readFifoCount();
+	if (!fifoCount) {
+		return false;
+	}
+
+	const std::size_t availableFrames = std::min<std::size_t>(*fifoCount, maxFrameCount);
+	framesRead = std::min(availableFrames, frameCapacity);
+	if (framesRead == 0) {
+		return true;
+	}
+
+	const std::size_t readLength = framesRead * frameSize;
+	std::array<uint8_t, FifoMaxReadBytes> rawBuffer{};
+	if (!this->read(i(Register::FifoData), rawBuffer.data(), readLength)) {
+		return false;
+	}
+
+	std::size_t index = 0;
+	for (std::size_t ii = 0; ii < framesRead; ++ii)
+	{
+		frames[ii].rawTemp.fill(0);
+		frames[ii].rawPress.fill(0);
+
+		switch (*frameSelection)
+		{
+			case FifoFrameSelection::Temperature:
+				frames[ii].rawTemp[0] = rawBuffer[index + 0];
+				frames[ii].rawTemp[1] = rawBuffer[index + 1];
+				frames[ii].rawTemp[2] = rawBuffer[index + 2];
+				break;
+			case FifoFrameSelection::Pressure:
+				frames[ii].rawPress[0] = rawBuffer[index + 0];
+				frames[ii].rawPress[1] = rawBuffer[index + 1];
+				frames[ii].rawPress[2] = rawBuffer[index + 2];
+				break;
+			case FifoFrameSelection::PressureTemperature:
+				frames[ii].rawTemp[0] = rawBuffer[index + 0];
+				frames[ii].rawTemp[1] = rawBuffer[index + 1];
+				frames[ii].rawTemp[2] = rawBuffer[index + 2];
+				frames[ii].rawPress[0] = rawBuffer[index + 3];
+				frames[ii].rawPress[1] = rawBuffer[index + 4];
+				frames[ii].rawPress[2] = rawBuffer[index + 5];
+				break;
+			case FifoFrameSelection::Disabled:
+				return false;
+		}
+
+		index += frameSize;
+	}
+
+	return true;
+}
+
+template<Bmp581Transport Transport>
+bool
 Bmp581<Transport>::readData(Data& data)
 {
 	// Read temperature (3 bytes) and pressure (3 bytes) in one transaction
@@ -316,6 +485,19 @@ Bmp581<Transport>::readRegister(Register reg)
 		return std::nullopt;
 	}
 	return value;
+}
+
+template<Bmp581Transport Transport>
+std::optional<bmp581::FifoFrameSelection>
+Bmp581<Transport>::readFifoFrameSelection()
+{
+	const auto fifoSel = readRegister(Register::FifoSel);
+	if (!fifoSel) {
+		return std::nullopt;
+	}
+
+	constexpr uint8_t frameSelectionMask = uint8_t(FifoSel::FrameSel0) | uint8_t(FifoSel::FrameSel1);
+	return static_cast<FifoFrameSelection>(*fifoSel & frameSelectionMask);
 }
 
 template<Bmp581Transport Transport>

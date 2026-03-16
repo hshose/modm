@@ -59,11 +59,25 @@ public:
 
 	static bool
 	isLocked()
-	{ return FLASH->CR & FLASH_CR_LOCK; }
+	{
+%% if family == "h7" and dual_bank
+		return (FLASH->CR1 & FLASH_CR_LOCK) || (FLASH->CR2 & FLASH_CR_LOCK);
+%% elif family == "h7"
+		return FLASH->CR1 & FLASH_CR_LOCK;
+%% else
+		return FLASH->CR & FLASH_CR_LOCK;
+%% endif
+	}
 
 	static inline bool
 	isBusy()
-	{ return FLASH->SR & {{ busy_bit }}; }
+	{
+%% if family == "h7"
+		return FLASH->SR1 & {{ busy_bit }};
+%% else
+		return FLASH->SR & {{ busy_bit }};
+%% endif
+	}
 
 	static bool
 	unlock();

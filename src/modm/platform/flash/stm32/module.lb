@@ -17,12 +17,16 @@ def init(module):
 
 def prepare(module, options):
     device = options[":target"]
-    if device.identifier.family not in ["g0","g4", "f1", "f4"]:
+    if device.identifier.family not in ["g0","g4", "f1", "f4", "h7"]:
+        return False
+    # Exclude H7RS (H7R3/R7/S3/S7) with different flash controller (stm32h7rsxx.h)
+    if device.identifier.family == "h7" and device.identifier.name in ["r3", "r7", "s3", "s7"]:
         return False
     if not device.has_driver("flash:stm32*"):
         return False
 
     module.depends(":cmsis:device", ":platform:rcc",
+                   ":platform:cortex-m",
                    ":architecture:register")
     return True
 
@@ -34,6 +38,7 @@ def build(env):
     family = target.family
     busy_bit = "FLASH_SR_BSY"
     ftype = "page"
+    sectors_per_bank = 0
     if target.family in ["f4"]:
         block_shift = 17
         ftype = "sector"
@@ -53,6 +58,19 @@ def build(env):
         if target.name[0] in ["7", "8"]:
             dual_bank = "FLASH_OPTR_DBANK"
             block_shift = "(FLASH->OPTR & FLASH_OPTR_DBANK ? 11 : 12)"
+    elif target.family in ["h7"]:
+        ftype = "sector"
+        busy_bit = "(FLASH_SR_BSY | FLASH_SR_QW)"
+        # H7A3/H7B0/H7B3: 8 KB sectors; all other H7: 128 KB sectors
+        if target.name in ["a3", "b0", "b3"]:
+            block_shift = 13
+        else:
+            block_shift = 17
+        # Dual-bank devices have separate CR1/SR1 and CR2/SR2 registers
+        if target.name in ["42", "43", "45", "47", "53", "55", "57", "a3", "b3"]:
+            dual_bank = True
+        # Bank 2 always starts 1 MB (0x100000) above bank 1
+        sectors_per_bank = 0x100000 >> block_shift  # 8 for 128 KB sectors, 128 for 8 KB sectors
 
     env.substitutions = {
         "start": flash["start"],
@@ -62,7 +80,8 @@ def build(env):
         "has_sectors": ftype == "sector",
         "busy_bit": busy_bit,
         "family": family,
-        "dual_bank": dual_bank
+        "dual_bank": dual_bank,
+        "sectors_per_bank": sectors_per_bank,
     }
     env.outbasepath = "modm/src/modm/platform/flash"
     env.template("flash.hpp.in")

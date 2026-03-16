@@ -96,11 +96,18 @@ def common_memories(env):
             "size": hex(flash_size)})
     flash_offset = env.get(":platform:cortex-m:linkerscript.flash_offset", 0)
     flash_reserved = env.get(":platform:cortex-m:linkerscript.flash_reserved", 0)
+    # Devices with only a single flash region ("flash" or "flash1" without "flash2")
+    # must have flash_reserved subtracted from that region. Devices with a "flash2"
+    # bank subtract flash_reserved from flash2 (the last bank).
+    memory_names = {m["name"] for m in memories}
+    has_flash2 = "flash2" in memory_names
     for m in memories:
         if m["name"] in ["flash", "flash1"]:
             m["start"] = int(m["start"], 0) + flash_offset
             m["size"] = int(m["size"], 0) - flash_offset
-        elif m["name"] in ["flash2", "flash"]:
+            if not has_flash2:
+                m["size"] -= flash_reserved
+        elif m["name"] == "flash2":
             m["start"] = int(m["start"], 0)
             m["size"] = int(m["size"], 0) - flash_reserved
         else:

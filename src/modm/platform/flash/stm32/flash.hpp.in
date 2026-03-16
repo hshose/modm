@@ -30,7 +30,7 @@ public:
 	using MaxWordType = uint{{ 32 if has_sectors else 64 }}_t;
 %% endif
 
-%% if has_sectors
+%% if has_sectors and family != "h7"
 	enum class
 	WordSize : uint32_t
 	{
@@ -108,13 +108,13 @@ public:
 	getSize(uint8_t {{ type }});
 
 	static uint32_t
-%% if has_sectors
+%% if has_sectors and family != "h7"
 	erase(uint8_t {{ type }}, WordSize size = WordSize::B32);
 %% else
 	erase(uint8_t {{ type }});
 %% endif
 
-%% if has_sectors
+%% if has_sectors and family != "h7"
 	static inline uint32_t
 	program(uintptr_t addr, uint8_t data)
 	{ return program(addr, data, WordSize::B8); }

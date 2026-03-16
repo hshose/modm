@@ -11,10 +11,13 @@
 
 #include "flash.hpp"
 
-%% if family == "h7"
+%% if family == "h7" and not h7_ab
 static constexpr uint32_t FLASH_SR_ERR =
     FLASH_SR_WRPERR | FLASH_SR_PGSERR | FLASH_SR_STRBERR |
     FLASH_SR_INCERR | FLASH_SR_OPERR;
+%% elif family == "h7"
+static constexpr uint32_t FLASH_SR_ERR =
+    FLASH_SR_WRPERR | FLASH_SR_PGSERR | FLASH_SR_STRBERR | FLASH_SR_INCERR;
 %% else
 static constexpr uint32_t FLASH_SR_ERR = 0xfffe;
 %% endif
@@ -27,15 +30,18 @@ Flash::unlock()
 {
 	Flash::enable();
 %% if family == "h7"
-	if (isLocked())
+	if (FLASH->CR1 & FLASH_CR_LOCK)
 	{
 		FLASH->KEYR1 = 0x45670123;
 		FLASH->KEYR1 = 0xCDEF89AB;
+	}
 %% if dual_bank
+	if (FLASH->CR2 & FLASH_CR_LOCK)
+	{
 		FLASH->KEYR2 = 0x45670123;
 		FLASH->KEYR2 = 0xCDEF89AB;
-%% endif
 	}
+%% endif
 	return not isLocked();
 %% else
 	if (isLocked())
@@ -97,16 +103,13 @@ Flash::getSize([[maybe_unused]] uint8_t index)
 }
 
 modm_ramcode uint32_t
-%% if has_sectors
+%% if has_sectors and family != "h7"
 Flash::erase(uint8_t index, WordSize size)
 %% else
 Flash::erase(uint8_t index)
 %% endif
 {
 %% if family == "h7"
-%% if has_sectors
-	(void)size;
-%% endif
 %% if dual_bank
 	const bool bank2 = (index >= {{sectors_per_bank}});
 	const uint8_t local = bank2 ? (index - {{sectors_per_bank}}) : index;
@@ -170,16 +173,13 @@ Flash::erase(uint8_t index)
 }
 
 modm_ramcode uint32_t
-%% if has_sectors
+%% if has_sectors and family != "h7"
 Flash::program(uintptr_t addr, MaxWordType data, WordSize size)
 %% else
 Flash::program(uintptr_t addr, MaxWordType data)
 %% endif
 {
 %% if family == "h7"
-%% if has_sectors
-	(void)size;
-%% endif
 %% if dual_bank
 	const bool bank2 = (addr >= (OriginAddr + 0x100000ul));
 	volatile uint32_t *cr  = bank2 ? &FLASH->CR2  : &FLASH->CR1;

@@ -35,6 +35,7 @@ def build(env):
     flash = env.query(":platform:cortex-m:memories")["cont_flash"]
 
     dual_bank = False
+    h7_ab = False
     family = target.family
     busy_bit = "FLASH_SR_BSY"
     ftype = "page"
@@ -62,7 +63,8 @@ def build(env):
         ftype = "sector"
         busy_bit = "(FLASH_SR_BSY | FLASH_SR_QW)"
         # H7A3/H7B0/H7B3: 8 KB sectors; all other H7: 128 KB sectors
-        if target.name in ["a3", "b0", "b3"]:
+        h7_ab = target.name in ["a3", "b0", "b3"]
+        if h7_ab:
             block_shift = 13
         else:
             block_shift = 17
@@ -82,6 +84,7 @@ def build(env):
         "family": family,
         "dual_bank": dual_bank,
         "sectors_per_bank": sectors_per_bank,
+        "h7_ab": h7_ab,
     }
     env.outbasepath = "modm/src/modm/platform/flash"
     env.template("flash.hpp.in")

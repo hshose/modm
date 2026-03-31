@@ -26,40 +26,6 @@
 
 using EMAC = modm::platform::Eth<modm::Lan8742a>;
 
-extern "C"
-{
-struct modm_ethernet_debug_info_t
-{
-	uint32_t irqReceive;
-	uint32_t irqTransmit;
-	uint32_t irqError;
-	uint32_t irqLastFlags;
-	uint32_t dmaStatus;
-	uint32_t macConfig;
-	uint32_t rxFrames;
-	uint32_t rxAccepted;
-	uint32_t rxDroppedError;
-	uint32_t rxDroppedFilter;
-	uint32_t rxDroppedAlloc;
-	uint32_t txRequested;
-	uint32_t txSubmitted;
-	uint32_t txCompleted;
-	uint32_t txDroppedLinkDown;
-	uint32_t txDroppedSemaphore;
-	uint32_t linkUpEvents;
-	uint32_t linkDownEvents;
-	uint32_t currentRxOwned;
-	uint32_t currentTxOwned;
-	uint32_t currentRxDescriptor;
-	uint32_t currentTxDescriptor;
-	uint32_t lastRxDescriptor;
-	uint32_t lastTxDescriptor;
-};
-
-void
-modm_ethernet_debug_snapshot(modm_ethernet_debug_info_t *info);
-}
-
 namespace modm
 {
 
@@ -144,7 +110,6 @@ struct ethernet
 	static constexpr TickType_t PhyLinkStatusLowMs { pdMS_TO_TICKS(1'000) };
 	static TickType_t phyLinkStatusRemaining;
 	static modm::platform::eth::LinkStatus lastPhyLinkStatus;
-	static modm_ethernet_debug_info_t debugInfo;
 
 	modm_aligned(32)
 	modm_section(".bss_d2_sram1")
@@ -260,8 +225,6 @@ struct ethernet
 			DmaTxDescriptorToClear->DESC3 = 0;
 			DmaTxDescriptorToClear->BackupAddr0 = 0;
 			DmaTxDescriptorToClear->BackupAddr1 = 0;
-			debugInfo.txCompleted++;
-			debugInfo.lastTxDescriptor = uint32_t(DmaTxDescriptorToClear);
 
 			if (++DmaTxDescriptorToClear == &DmaTxDescriptorTable[TX_BUFFER_NUMBER])
 				DmaTxDescriptorToClear = DmaTxDescriptorTable;
@@ -357,29 +320,21 @@ struct ethernet
 			receivedLength = (dmaRxDescriptor->DESC3 & FrameLengthMask) - 4;
 			auto *buffer = reinterpret_cast<uint8_t *>(dmaRxDescriptor->BackupAddr0);
 			invalidateDCache(buffer, receivedLength);
-			debugInfo.rxFrames++;
-			debugInfo.lastRxDescriptor = uint32_t(dmaRxDescriptor);
 
 			if ((dmaRxDescriptor->DESC3 & uint32_t(RxDescriptorStatus::ErrorSummary)) != 0) {
 				accepted = false;
-				debugInfo.rxDroppedError++;
 			}
 			else if ((dmaRxDescriptor->DESC3 & uint32_t(RxDescriptorStatus::LastSegment)) == 0) {
 				accepted = false;
-				debugInfo.rxDroppedError++;
 			}
 			else {
 				accepted = mayAcceptPacket(buffer);
-				if (not accepted)
-					debugInfo.rxDroppedFilter++;
 			}
 
 			if (accepted) {
 				newDescriptor = pxGetNetworkBufferWithDescriptor(receivedLength, descriptorWaitTime);
-				if (newDescriptor == nullptr) {
+				if (newDescriptor == nullptr)
 					accepted = false;
-					debugInfo.rxDroppedAlloc++;
-				}
 			}
 
 			if (accepted) {
@@ -392,7 +347,6 @@ struct ethernet
 				else if (lastDescriptor)
 					lastDescriptor->pxNextBuffer = currentDescriptor;
 				lastDescriptor = currentDescriptor;
-				debugInfo.rxAccepted++;
 			}
 
 			dmaRxDescriptor->DESC0 = dmaRxDescriptor->BackupAddr0;
@@ -452,12 +406,8 @@ struct ethernet
 			if (lastPhyLinkStatus != phyLinkStatus) {
 				lastPhyLinkStatus = phyLinkStatus;
 				if (phyLinkStatus == eth::LinkStatus::Down) {
-					debugInfo.linkDownEvents++;
 					IPStackEvent_t rxEvent = { eNetworkDownEvent, nullptr };
 					xSendEventStructToIPTask(&rxEvent, 0);
-				}
-				else {
-					debugInfo.linkUpEvents++;
 				}
 				checkNeeded = true;
 			}
@@ -514,7 +464,6 @@ modm::platform::eth::Event_t ethernet::isrEvent { modm::platform::eth::Event::No
 TimeOut_t ethernet::phyLinkStatusTimer;
 modm::platform::eth::LinkStatus ethernet::lastPhyLinkStatus { modm::platform::eth::LinkStatus::Down };
 TickType_t ethernet::phyLinkStatusRemaining { 0 };
-modm_ethernet_debug_info_t ethernet::debugInfo {};
 
 modm_aligned(32)
 modm_section(".bss_d2_sram1")
@@ -599,7 +548,6 @@ xNetworkInterfaceOutput(NetworkBufferDescriptor_t * const descriptor, BaseType_t
 	static constexpr TickType_t blockTimeTicks { pdMS_TO_TICKS(50) };
 
 	BaseType_t result { pdFAIL };
-	ethernet::debugInfo.txRequested++;
 
 	do {
 		auto *packet = reinterpret_cast<ProtocolPacket_t *>(descriptor->pucEthernetBuffer);
@@ -610,16 +558,12 @@ xNetworkInterfaceOutput(NetworkBufferDescriptor_t * const descriptor, BaseType_t
 		(void) packet;
 #endif
 
-		if (EMAC::getLinkStatus() == modm::platform::eth::LinkStatus::Down) {
-			ethernet::debugInfo.txDroppedLinkDown++;
+		if (EMAC::getLinkStatus() == modm::platform::eth::LinkStatus::Down)
 			break;
-		}
 
 		ethernet::clearTxBuffers();
-		if (xSemaphoreTake(ethernet::txDescriptorSemaphore, blockTimeTicks) != pdPASS) {
-			ethernet::debugInfo.txDroppedSemaphore++;
+		if (xSemaphoreTake(ethernet::txDescriptorSemaphore, blockTimeTicks) != pdPASS)
 			break;
-		}
 
 		auto *dmaTxDescriptor = ethernet::TxDescriptor;
 		configASSERT((dmaTxDescriptor->DESC3 & uint32_t(ethernet::TxDescriptor3::DmaOwned)) == 0);
@@ -659,8 +603,6 @@ xNetworkInterfaceOutput(NetworkBufferDescriptor_t * const descriptor, BaseType_t
 
 		__DSB();
 		ETH->DMACTDTPR = uint32_t(ethernet::TxDescriptor);
-		ethernet::debugInfo.txSubmitted++;
-		ethernet::debugInfo.lastTxDescriptor = uint32_t(dmaTxDescriptor);
 		iptraceNETWORK_INTERFACE_TRANSMIT();
 		result = pdPASS;
 	} while (0);
@@ -677,38 +619,6 @@ BaseType_t xGetPhyLinkStatus()
 	return EMAC::getLinkStatus() == modm::platform::eth::LinkStatus::Up ? pdTRUE : pdFALSE;
 }
 
-extern "C"
-void
-modm_ethernet_debug_snapshot(modm_ethernet_debug_info_t *info)
-{
-	using modm::ethernet;
-
-	if (info == nullptr)
-		return;
-
-	*info = ethernet::debugInfo;
-	info->dmaStatus = ETH->DMACSR;
-	info->macConfig = ETH->MACCR;
-	info->currentRxDescriptor = uint32_t(ethernet::RxDescriptor);
-	info->currentTxDescriptor = uint32_t(ethernet::TxDescriptor);
-	info->currentRxOwned = 0;
-	info->currentTxOwned = 0;
-
-	for (std::size_t index = 0; index < ethernet::RX_BUFFER_NUMBER; ++index) {
-		if ((ethernet::DmaRxDescriptorTable[index].DESC3 &
-				uint32_t(ethernet::RxDescriptorStatus::DmaOwned)) != 0) {
-			info->currentRxOwned++;
-		}
-	}
-
-	for (std::size_t index = 0; index < ethernet::TX_BUFFER_NUMBER; ++index) {
-		if ((ethernet::DmaTxDescriptorTable[index].DESC3 &
-				uint32_t(ethernet::TxDescriptor3::DmaOwned)) != 0) {
-			info->currentTxOwned++;
-		}
-	}
-}
-
 MODM_ISR(ETH)
 {
 	using modm::platform::eth;
@@ -717,20 +627,15 @@ MODM_ISR(ETH)
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	const EMAC::InterruptFlags_t irq = EMAC::getInterruptFlags();
 	EMAC::acknowledgeInterrupt(irq);
-	ethernet::debugInfo.irqLastFlags = irq.value;
 
 	if (irq & (eth::InterruptFlags::Receive | eth::InterruptFlags::ReceiveBufferUnavailable)) {
-		ethernet::debugInfo.irqReceive++;
 		ethernet::isrEvent |= eth::Event::Receive;
 	}
 	if (irq & eth::InterruptFlags::Transmit) {
-		ethernet::debugInfo.irqTransmit++;
 		ethernet::isrEvent |= eth::Event::Transmit;
 	}
-	if (irq & (eth::InterruptFlags::AbnormalIrqSummary | eth::InterruptFlags::FatalBusError)) {
-		ethernet::debugInfo.irqError++;
+	if (irq & (eth::InterruptFlags::AbnormalIrqSummary | eth::InterruptFlags::FatalBusError))
 		ethernet::isrEvent |= eth::Event::Error;
-	}
 
 	if (ethernet::emacTaskHandle) {
 		vTaskNotifyGiveFromISR(ethernet::emacTaskHandle, &xHigherPriorityTaskWoken);

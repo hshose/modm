@@ -18,7 +18,19 @@
 #include "../device.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstring>
+
+#if defined(STM32H7) || defined(STM32H723xx) || defined(STM32H725xx) || \
+	defined(STM32H730xx) || defined(STM32H730xxQ) || defined(STM32H733xx) || \
+	defined(STM32H735xx) || defined(STM32H742xx) || defined(STM32H743xx) || \
+	defined(STM32H745xx) || defined(STM32H745xG) || defined(STM32H747xx) || \
+	defined(STM32H747xG) || defined(STM32H750xx) || defined(STM32H753xx) || \
+	defined(STM32H755xx) || defined(STM32H757xx) || defined(STM32H7A3xx) || \
+	defined(STM32H7A3xxQ) || defined(STM32H7B0xx) || defined(STM32H7B0xxQ) || \
+	defined(STM32H7B3xx) || defined(STM32H7B3xxQ)
+#	define MODM_ETH_STM32H7
+#endif
 
 namespace modm
 {
@@ -32,7 +44,11 @@ struct eth
 	MediaInterface : uint32_t
 	{
 		MII  = 0x00,
+#if defined(MODM_ETH_STM32H7)
+		RMII = SYSCFG_PMCR_EPIS_SEL_2
+#else
 		RMII = SYSCFG_PMC_MII_RMII_SEL
+#endif
 	};
 
 	enum class
@@ -68,6 +84,23 @@ struct eth
 	enum class
 	Interrupt : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		NormalIrqSummary          = ETH_DMACIER_NIE,
+		AbnormalIrqSummary        = ETH_DMACIER_AIE,
+		EarlyReceive              = ETH_DMACIER_ERIE,
+		FatalBusError             = ETH_DMACIER_FBEE,
+		EarlyTransmit             = ETH_DMACIER_ETIE,
+		ReceiveWatchdog           = ETH_DMACIER_RWTE,
+		ReceiveStopped            = ETH_DMACIER_RSE,
+		ReceiveBufferUnavailable  = ETH_DMACIER_RBUE,
+		Receive                   = ETH_DMACIER_RIE,
+		TransmitUnderflow         = 0,
+		ReceiveOverflow           = 0,
+		TransmitJabberTimeout     = 0,
+		TransmitBufferUnavailable = ETH_DMACIER_TBUE,
+		TransmitStopped           = ETH_DMACIER_TXSE,
+		Transmit                  = ETH_DMACIER_TIE,
+#else
 		NormalIrqSummary   		  = modm::Bit16,
 		AbnormalIrqSummary        = modm::Bit15,
 		EarlyReceive      		  = modm::Bit14,
@@ -83,12 +116,42 @@ struct eth
 		TransmitBufferUnavailable = modm::Bit2,
 		TransmitStopped			  = modm::Bit1,
 		Transmit 				  = modm::Bit0,
+#endif
 	};
 	MODM_FLAGS32(Interrupt);
 
 	enum class
 	InterruptFlags : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		TimeStampTrigger          = 0,
+		Pmt                       = 0,
+		Mmc                       = 0,
+		ErrorBitStatus2           = 0,
+		ErrorBitStatus1           = 0,
+		ErrorBitStatus0           = 0,
+		TransmitProcessState2     = 0,
+		TransmitProcessState1     = 0,
+		TransmitProcessState0     = 0,
+		ReceiveProcessState2      = 0,
+		ReceiveProcessState1      = 0,
+		ReceiveProcessState0      = 0,
+		NormalIrqSummary          = ETH_DMACSR_NIS,
+		AbnormalIrqSummary        = ETH_DMACSR_AIS,
+		EarlyReceive              = ETH_DMACSR_ERI,
+		FatalBusError             = ETH_DMACSR_FBE,
+		EarlyTransmit             = ETH_DMACSR_ETI,
+		ReceiveWatchdog           = ETH_DMACSR_RWT,
+		ReceiveStopped            = ETH_DMACSR_RPS,
+		ReceiveBufferUnavailable  = ETH_DMACSR_RBU,
+		Receive                   = ETH_DMACSR_RI,
+		TransmitUnderflow         = 0,
+		ReceiveOverflow           = 0,
+		TransmitJabberTimeout     = 0,
+		TransmitBufferUnavailable = ETH_DMACSR_TBU,
+		TransmitStopped           = ETH_DMACSR_TPS,
+		Transmit                  = ETH_DMACSR_TI,
+#else
 		TimeStampTrigger  		  = modm::Bit29,
 		Pmt               		  = modm::Bit28,
 		Mmc               		  = modm::Bit27,
@@ -116,6 +179,7 @@ struct eth
 		TransmitBufferUnavailable = modm::Bit2,
 		TransmitStopped			  = modm::Bit1,
 		Transmit 				  = modm::Bit0,
+#endif
 	};
 	MODM_FLAGS32(InterruptFlags);
 
@@ -140,6 +204,14 @@ class Eth : public eth
 	enum class
 	MacConfiguration : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		EthernetSpeed       = ETH_MACCR_FES,
+		DuplexMode          = ETH_MACCR_DM,
+		Ipv4ChecksumOffLoad = ETH_MACCR_IPC,
+		RetryDisable        = ETH_MACCR_DR,
+		TransmitterEnable   = ETH_MACCR_TE,
+		ReceiveEnable       = ETH_MACCR_RE,
+#else
 		WatchDogDisable     = modm::Bit23,
 		JabberDisable       = modm::Bit22,
 		InterframeGap2      = modm::Bit19,
@@ -158,10 +230,15 @@ class Eth : public eth
 		DeferalCheck        = modm::Bit4,
 		TransmitterEnable   = modm::Bit3,
 		ReceiveEnable       = modm::Bit2,
+#endif
 	};
 	MODM_FLAGS32(MacConfiguration);
 
+#if defined(MODM_ETH_STM32H7)
+	static constexpr uint32_t MacCrClearMask { 0xFFFB7F7C };
+#else
 	static constexpr uint32_t MacCrClearMask { 0xFF20810F };
+#endif
 
 	enum class
 	Watchdog : uint32_t
@@ -207,6 +284,20 @@ class Eth : public eth
 	enum class
 	MacFrameFilter : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		ReceiveAll                = ETH_MACPFR_RA,
+		HashOrPerfect             = ETH_MACPFR_HPF,
+		SourceAddress             = ETH_MACPFR_SAF,
+		SourceAddressInverse      = ETH_MACPFR_SAIF,
+		PassControl1              = 0,
+		PassControl0              = 0,
+		BroadcastDisable          = ETH_MACPFR_DBF,
+		PassAllMulticast          = ETH_MACPFR_PM,
+		DestinationAddressInverse = ETH_MACPFR_DAIF,
+		HashMulticast             = ETH_MACPFR_HMC,
+		HasUnicast                = ETH_MACPFR_HUC,
+		PromiscuousMode           = ETH_MACPFR_PR,
+#else
 		ReceiveAll                = modm::Bit31,
 		HashOrPerfect             = modm::Bit10,
 		SourceAddress             = modm::Bit9,
@@ -219,6 +310,7 @@ class Eth : public eth
 		HashMulticast             = modm::Bit2,
 		HasUnicast                = modm::Bit1,
 		PromiscuousMode           = modm::Bit0,
+#endif
 	};
 	MODM_FLAGS32(MacFrameFilter);
 
@@ -235,6 +327,15 @@ class Eth : public eth
 	enum class
 	MacFlowControl : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		ZeroQuantaPauseDisable    = ETH_MACTFCR_DZPQ,
+		PauseLowThreshold1        = 0,
+		PauseLowThreshold0        = 0,
+		UnicastPauseDetect        = ETH_MACRFCR_UP,
+		ReceiveFlowControlEnable  = ETH_MACRFCR_RFE,
+		TransmitFlowControlEnable = ETH_MACTFCR_TFE,
+		FlowControlBusy           = 0,
+#else
 		PauseTime15 = modm::Bit31,
 		PauseTime14 = modm::Bit30,
 		PauseTime13 = modm::Bit29,
@@ -258,10 +359,15 @@ class Eth : public eth
 		ReceiveFlowControlEnable  = modm::Bit2,
 		TransmitFlowControlEnable = modm::Bit1,
 		FlowControlBusy           = modm::Bit0,
+#endif
 	};
 	MODM_FLAGS32(MacFlowControl);
 
+#if defined(MODM_ETH_STM32H7)
+	static constexpr uint32_t MacFcrClearMask { 0xFFFF00F2 };
+#else
 	static constexpr uint32_t MacFcrClearMask { 0x0000FF41 };
+#endif
 
 	enum class
 	PauseLowThreshold : uint32_t
@@ -276,6 +382,9 @@ class Eth : public eth
 	enum class
 	DmaOperationMode : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		None = 0,
+#else
 		DropCrcErrorFrameDisable    = modm::Bit26,
 		ReceiveStoreAndForward      = modm::Bit25,
 		DisableFlushReceivedFrames  = modm::Bit24,
@@ -291,10 +400,13 @@ class Eth : public eth
 		ReceiveThreshold0           = modm::Bit3,
 		OperateOnSecondFrame        = modm::Bit2,
 		StartReceive                = modm::Bit1,
+#endif
 	};
 	MODM_FLAGS32(DmaOperationMode);
 
+#if !defined(MODM_ETH_STM32H7)
 	static constexpr uint32_t DmaOmrClearMask { 0xF8DE3F23 };
+#endif
 
 	enum class
 	TransmitThreshold : uint32_t
@@ -323,6 +435,9 @@ class Eth : public eth
 	enum class
 	DmaBusMode : uint32_t
 	{
+#if defined(MODM_ETH_STM32H7)
+		None = 0,
+#else
 		MixedBurst            = modm::Bit26,
 		AddressAlignedBeats   = modm::Bit25,
 		PblModeX4             = modm::Bit24,
@@ -350,6 +465,7 @@ class Eth : public eth
 		DescriptorSkipLength0 = modm::Bit2,
 		DmaArbitration        = modm::Bit1,
 		SoftwareReset         = modm::Bit0,
+#endif
 	};
 	MODM_FLAGS32(DmaBusMode);
 
@@ -381,12 +497,27 @@ public:
 	{
 		using namespace modm::literals;
 
+#if defined(MODM_ETH_STM32H7)
+		RCC->AHB1ENR |= RCC_AHB1ENR_ETH1MACEN | RCC_AHB1ENR_ETH1TXEN | RCC_AHB1ENR_ETH1RXEN;
+		__DSB();
+		RCC->AHB1RSTR |= RCC_AHB1RSTR_ETH1MACRST;
+		__DSB();
+		RCC->AHB1RSTR &= ~RCC_AHB1RSTR_ETH1MACRST;
+#else
 		Rcc::enable<Peripheral::Eth>();
+#endif
 
 		NVIC_SetPriority(ETH_IRQn, priority);
 		NVIC_EnableIRQ(ETH_IRQn);
 
 		/* Select MII or RMII Mode*/
+#if defined(MODM_ETH_STM32H7)
+		SYSCFG->PMCR &= ~SYSCFG_PMCR_EPIS_SEL;
+		SYSCFG->PMCR |= uint32_t(Interface);
+		(void) SYSCFG->PMCR;
+
+		ETH->DMAMR |= ETH_DMAMR_SWR;
+#else
 		SYSCFG->PMC &= ~(SYSCFG_PMC_MII_RMII_SEL);
 		SYSCFG->PMC |= uint32_t(Interface);
 
@@ -394,12 +525,13 @@ public:
 		/* Set the SWR bit: resets all MAC subsystem internal registers and logic */
 		/* After reset all the registers holds their respective reset values */
 		ETH->DMABMR |= DmaBusMode_t(DmaBusMode::SoftwareReset | DmaBusMode::EnhancedDescFormat).value;
+#endif
 
 		/* Wait for software reset */
 		/* Note: The SWR is not performed if the ETH_RX_CLK or the ETH_TX_CLK are
 		 * not available, please check your external PHY or the IO configuration */
 		int timeout = 1'000; // max 1ms
-		while ((DmaBusMode(ETH->DMABMR) & DmaBusMode_t(DmaBusMode::SoftwareReset)) and (timeout-- > 0)) {
+		while ((isSoftwareResetActive()) and (timeout-- > 0)) {
 			// Wait until the PHY has reset.
 			modm::delay_us(1);
 
@@ -410,19 +542,11 @@ public:
 			return false;
 
 		/* Configure SMI clock range */
-		uint32_t csr_clock_divider = ETH->MACMIIAR & ETH_MACMIIAR_CR_Msk;
-		if (SystemCoreClock >= 20_MHz and SystemCoreClock < 35_MHz)
-				csr_clock_divider |= ETH_MACMIIAR_CR_Div16;
-		else if (SystemCoreClock >= 35_MHz and SystemCoreClock < 60_MHz)
-				csr_clock_divider |= ETH_MACMIIAR_CR_Div26;
-		else if (SystemCoreClock >= 60_MHz and SystemCoreClock < 100_MHz)
-				csr_clock_divider |= ETH_MACMIIAR_CR_Div42;
-		else if (SystemCoreClock >= 100_MHz and SystemCoreClock < 150_MHz)
-				csr_clock_divider |= ETH_MACMIIAR_CR_Div62;
-		else if (SystemCoreClock >= 150_MHz)
-				csr_clock_divider |= ETH_MACMIIAR_CR_Div102;
+		configureMdioClockRange();
 
-		ETH->MACMIIAR = csr_clock_divider;
+#if defined(MODM_ETH_STM32H7)
+		ETH->MAC1USTCR = (getHclkFrequency() / 1'000'000U) - 1U;
+#endif
 
 		// Initialize PHY
 		uint32_t phy_register { 0 };
@@ -470,6 +594,32 @@ public:
 	static void
 	configureMac(bool autoNegotiationFailed = false)
 	{
+#if defined(MODM_ETH_STM32H7)
+		if (autoNegotiationFailed) {
+			duplexMode = DuplexMode::Full;
+			speed = Speed::Speed100M;
+		}
+
+		uint32_t tmp = ETH->MACCR & ~MacCrClearMask;
+		tmp |= MacConfiguration_t(
+				MacConfiguration::Ipv4ChecksumOffLoad |
+				MacConfiguration::RetryDisable).value;
+		tmp |= Speed_t(speed).value;
+		tmp |= DuplexMode_t(duplexMode).value;
+		writeMACCR(tmp);
+
+		writeMACFFR(0);
+
+		ETH->MACHT0R = 0x00000000;
+		ETH->MACHT1R = 0x00000000;
+
+		tmp = ETH->MACTFCR & ~MacFcrClearMask;
+		tmp |= MacFlowControl_t(MacFlowControl::ZeroQuantaPauseDisable).value;
+		writeMACTFCR(tmp);
+		tmp = ETH->MACRFCR;
+		tmp &= ~(ETH_MACRFCR_RFE | ETH_MACRFCR_UP);
+		writeMACRFCR(tmp);
+#else
 		uint32_t tmp;
 
 		if (autoNegotiationFailed) {
@@ -506,11 +656,44 @@ public:
 
 		// no VLAN support for now
 		writeMACVLANTR(0x00000000);
+#endif
 	}
 
 	static void
 	configureDma()
 	{
+#if defined(MODM_ETH_STM32H7)
+		ETH->MTLTQOMR =
+				(ETH->MTLTQOMR & ~0x00000072) |
+				ETH_MTLTQOMR_TSF;
+		ETH->MTLRQOMR =
+				(ETH->MTLRQOMR & ~0x0000007B) |
+				ETH_MTLRQOMR_RSF;
+
+		ETH->DMAMR =
+				(ETH->DMAMR & ~0x00007802);
+
+		ETH->DMASBMR =
+				(ETH->DMASBMR & ~0x0000D001) |
+				ETH_DMASBMR_AAL |
+				ETH_DMASBMR_FB;
+
+		ETH->DMACCR =
+				(ETH->DMACCR & ~0x00013FFF) |
+				ETH_DMACCR_DSL_64BIT;
+
+		ETH->DMACTCR =
+				(ETH->DMACTCR & ~0x003F1010) |
+				ETH_DMACTCR_TPBL_32PBL;
+
+		ETH->DMACRCR =
+				(ETH->DMACRCR & ~0x803F0000) |
+				ETH_DMACRCR_RPBL_32PBL;
+
+		enableInterrupt(Interrupt::NormalIrqSummary | Interrupt::Receive);
+
+		configureMacAddresses();
+#else
 		uint32_t tmp;
 
 		DmaOperationMode_t dmaomr {
@@ -535,6 +718,7 @@ public:
 		enableInterrupt(Interrupt::NormalIrqSummary | Interrupt::Receive);
 
 		configureMacAddresses();
+#endif
 	}
 
 	static void
@@ -553,26 +737,68 @@ public:
 
 	static void
 	setDmaTxDescriptorTable(uint32_t address) {
+#if defined(MODM_ETH_STM32H7)
+		setDmaTxDescriptorTable(address, 1);
+#else
 		ETH->DMATDLAR = address;
+#endif
 	}
 	static void
 	setDmaRxDescriptorTable(uint32_t address) {
+#if defined(MODM_ETH_STM32H7)
+		setDmaRxDescriptorTable(address, 1);
+#else
 		ETH->DMARDLAR = address;
+#endif
+	}
+	static void
+	setDmaTxDescriptorTable(uint32_t address, std::size_t count) {
+#if defined(MODM_ETH_STM32H7)
+		ETH->DMACTDLAR = address;
+		ETH->DMACTDRLR = count ? uint32_t(count - 1) : 0;
+		ETH->DMACTDTPR = address;
+#else
+		(void) count;
+		ETH->DMATDLAR = address;
+#endif
+	}
+	static void
+	setDmaRxDescriptorTable(uint32_t address, std::size_t count) {
+#if defined(MODM_ETH_STM32H7)
+		ETH->DMACRDLAR = address;
+		ETH->DMACRDRLR = count ? uint32_t(count - 1) : 0;
+		ETH->DMACRDTPR = address;
+#else
+		(void) count;
+		ETH->DMARDLAR = address;
+#endif
 	}
 
 	static InterruptFlags
 	getInterruptFlags() {
+#if defined(MODM_ETH_STM32H7)
+		return InterruptFlags(ETH->DMACSR);
+#else
 		return InterruptFlags(ETH->DMASR);
+#endif
 	}
 	static void
 	acknowledgeInterrupt(InterruptFlags_t irq) {
 		// set only the bits you want to clear!
 		// using an |= here would clear other fields as well
+#if defined(MODM_ETH_STM32H7)
+		ETH->DMACSR = irq.value;
+#else
 		ETH->DMASR = irq.value;
+#endif
 	}
 	static void
 	enableInterrupt(Interrupt_t irq) {
+#if defined(MODM_ETH_STM32H7)
+		ETH->DMACIER |= irq.value;
+#else
 		ETH->DMAIER |= irq.value;
+#endif
 	}
 
 	// FIXME: Make this more generic by delegating specifics to the PHY
@@ -634,6 +860,66 @@ public:
 	}
 
 private:
+	static bool
+	isSoftwareResetActive() {
+#if defined(MODM_ETH_STM32H7)
+		return (ETH->DMAMR & ETH_DMAMR_SWR) != 0;
+#else
+		return (DmaBusMode(ETH->DMABMR) &
+				DmaBusMode_t(DmaBusMode::SoftwareReset)).value != 0;
+#endif
+	}
+
+	static uint32_t
+	getHclkFrequency() {
+#if defined(MODM_ETH_STM32H7)
+		static constexpr uint16_t hpreShift[] {1, 1, 1, 1, 1, 1, 1, 1, 2, 4, 8, 16, 64, 128, 256, 512};
+		const uint32_t prescaler = RCC->D1CFGR & RCC_D1CFGR_HPRE;
+		return SystemCoreClock / hpreShift[prescaler];
+#else
+		return SystemCoreClock;
+#endif
+	}
+
+	static void
+	configureMdioClockRange() {
+		using namespace modm::literals;
+
+#if defined(MODM_ETH_STM32H7)
+		uint32_t csrClockDivider = ETH->MACMDIOAR & ~ETH_MACMDIOAR_CR;
+		const uint32_t hclk = getHclkFrequency();
+
+		if (hclk >= 20_MHz and hclk < 35_MHz)
+			csrClockDivider |= ETH_MACMDIOAR_CR_DIV16;
+		else if (hclk >= 35_MHz and hclk < 60_MHz)
+			csrClockDivider |= ETH_MACMDIOAR_CR_DIV26;
+		else if (hclk >= 60_MHz and hclk < 100_MHz)
+			csrClockDivider |= ETH_MACMDIOAR_CR_DIV42;
+		else if (hclk >= 100_MHz and hclk < 150_MHz)
+			csrClockDivider |= ETH_MACMDIOAR_CR_DIV62;
+		else if (hclk >= 150_MHz and hclk < 250_MHz)
+			csrClockDivider |= ETH_MACMDIOAR_CR_DIV102;
+		else
+			csrClockDivider |= ETH_MACMDIOAR_CR_DIV124;
+
+		ETH->MACMDIOAR = csrClockDivider;
+#else
+		uint32_t csrClockDivider = ETH->MACMIIAR & ETH_MACMIIAR_CR_Msk;
+		if (SystemCoreClock >= 20_MHz and SystemCoreClock < 35_MHz)
+			csrClockDivider |= ETH_MACMIIAR_CR_Div16;
+		else if (SystemCoreClock >= 35_MHz and SystemCoreClock < 60_MHz)
+			csrClockDivider |= ETH_MACMIIAR_CR_Div26;
+		else if (SystemCoreClock >= 60_MHz and SystemCoreClock < 100_MHz)
+			csrClockDivider |= ETH_MACMIIAR_CR_Div42;
+		else if (SystemCoreClock >= 100_MHz and SystemCoreClock < 150_MHz)
+			csrClockDivider |= ETH_MACMIIAR_CR_Div62;
+		else if (SystemCoreClock >= 150_MHz)
+			csrClockDivider |= ETH_MACMIIAR_CR_Div102;
+
+		ETH->MACMIIAR = csrClockDivider;
+#endif
+	}
+
 	static void
 	writeMACCR(uint32_t value) {
 		ETH->MACCR = value;
@@ -643,38 +929,83 @@ private:
 	}
 	static void
 	writeMACFCR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		(void) value;
+#else
 		ETH->MACFCR = value;
 		(void) ETH->MACFCR;
 		modm::delay_ms(1);
 		ETH->MACFCR = value;
+#endif
 	}
 	static void
 	writeMACFFR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		ETH->MACPFR = value;
+		(void) ETH->MACPFR;
+		modm::delay_ms(1);
+		ETH->MACPFR = value;
+#else
 		ETH->MACFFR = value;
 		(void) ETH->MACFFR;
 		modm::delay_ms(1);
 		ETH->MACFFR = value;
+#endif
+	}
+	static void
+	writeMACTFCR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		ETH->MACTFCR = value;
+		(void) ETH->MACTFCR;
+		modm::delay_ms(1);
+		ETH->MACTFCR = value;
+#else
+		(void) value;
+#endif
+	}
+	static void
+	writeMACRFCR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		ETH->MACRFCR = value;
+		(void) ETH->MACRFCR;
+		modm::delay_ms(1);
+		ETH->MACRFCR = value;
+#else
+		(void) value;
+#endif
 	}
 	static void
 	writeMACVLANTR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		(void) value;
+#else
 		ETH->MACVLANTR = value;
 		(void) ETH->MACVLANTR;
 		modm::delay_ms(1);
 		ETH->MACVLANTR = value;
+#endif
 	}
 	static void
 	writeDMABMR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		(void) value;
+#else
 		ETH->DMABMR= value;
 		(void) ETH->DMABMR;
 		modm::delay_ms(1);
 		ETH->DMABMR = value;
+#endif
 	}
 	static void
 	writeDMAOMR(uint32_t value) {
+#if defined(MODM_ETH_STM32H7)
+		(void) value;
+#else
 		ETH->DMAOMR= value;
 		(void) ETH->DMAOMR;
 		modm::delay_ms(1);
 		ETH->DMAOMR = value;
+#endif
 	}
 
 	static bool

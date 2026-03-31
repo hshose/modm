@@ -17,40 +17,6 @@
 
 using namespace Board;
 
-extern "C"
-{
-struct modm_ethernet_debug_info_t
-{
-	uint32_t irqReceive;
-	uint32_t irqTransmit;
-	uint32_t irqError;
-	uint32_t irqLastFlags;
-	uint32_t dmaStatus;
-	uint32_t macConfig;
-	uint32_t rxFrames;
-	uint32_t rxAccepted;
-	uint32_t rxDroppedError;
-	uint32_t rxDroppedFilter;
-	uint32_t rxDroppedAlloc;
-	uint32_t txRequested;
-	uint32_t txSubmitted;
-	uint32_t txCompleted;
-	uint32_t txDroppedLinkDown;
-	uint32_t txDroppedSemaphore;
-	uint32_t linkUpEvents;
-	uint32_t linkDownEvents;
-	uint32_t currentRxOwned;
-	uint32_t currentTxOwned;
-	uint32_t currentRxDescriptor;
-	uint32_t currentTxDescriptor;
-	uint32_t lastRxDescriptor;
-	uint32_t lastTxDescriptor;
-};
-
-void
-modm_ethernet_debug_snapshot(modm_ethernet_debug_info_t *info);
-}
-
 namespace Ethernet
 {
 	using RMII_Ref_Clk = GpioInputA1;
@@ -199,52 +165,7 @@ public:
 	}
 };
 
-class EthernetDebugTask : modm::rtos::Thread
-{
-	static constexpr TickType_t samplePeriod { pdMS_TO_TICKS(1000) };
-
-public:
-	EthernetDebugTask()
-	: Thread(configMAX_PRIORITIES - 4, 2048, "ethernet_debug")
-	{}
-
-	void
-	run() override
-	{
-		for (;;) {
-			modm_ethernet_debug_info_t info {};
-			modm_ethernet_debug_snapshot(&info);
-
-			MODM_LOG_INFO << "eth dbg:"
-					<< " irq(rx/tx/err)=" << info.irqReceive << "/" << info.irqTransmit
-					<< "/" << info.irqError
-					<< " last_irq=0x" << modm::hex << info.irqLastFlags
-					<< " dmacsr=0x" << info.dmaStatus
-					<< " maccr=0x" << info.macConfig
-					<< modm::ascii << modm::endl;
-			MODM_LOG_INFO << "         rx(frames/ok/err/filter/alloc)="
-					<< info.rxFrames << "/" << info.rxAccepted << "/" << info.rxDroppedError
-					<< "/" << info.rxDroppedFilter << "/" << info.rxDroppedAlloc
-					<< " tx(req/sub/done/link/sem)="
-					<< info.txRequested << "/" << info.txSubmitted << "/" << info.txCompleted
-					<< "/" << info.txDroppedLinkDown << "/" << info.txDroppedSemaphore
-					<< modm::endl;
-			MODM_LOG_INFO << "         link(up/down)=" << info.linkUpEvents << "/"
-					<< info.linkDownEvents
-					<< " owned(rx/tx)=" << info.currentRxOwned << "/" << info.currentTxOwned
-					<< " desc(rx/tx)=0x" << modm::hex << info.currentRxDescriptor
-					<< "/0x" << info.currentTxDescriptor
-					<< " last(rx/tx)=0x" << info.lastRxDescriptor
-					<< "/0x" << info.lastTxDescriptor
-					<< modm::ascii << modm::endl;
-
-			sleep(samplePeriod);
-		}
-	}
-};
-
 NetworkInitTask networkInit;
-EthernetDebugTask ethernetDebug;
 
 int
 main()

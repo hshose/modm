@@ -566,7 +566,30 @@ xNetworkInterfaceOutput(NetworkBufferDescriptor_t * const descriptor, BaseType_t
 			break;
 
 		auto *dmaTxDescriptor = ethernet::TxDescriptor;
-		configASSERT((dmaTxDescriptor->DESC3 & uint32_t(ethernet::TxDescriptor3::DmaOwned)) == 0);
+		bool descriptorReady { false };
+		TimeOut_t timeout;
+		TickType_t remainingTime { blockTimeTicks };
+		vTaskSetTimeOutState(&timeout);
+
+		while (not descriptorReady) {
+			ethernet::invalidateDCache(dmaTxDescriptor, sizeof(*dmaTxDescriptor));
+			descriptorReady =
+					(dmaTxDescriptor->DESC3 & uint32_t(ethernet::TxDescriptor3::DmaOwned)) == 0;
+			if (descriptorReady)
+				break;
+
+			// Keep the software ring bookkeeping in sync with DMA write-back before
+			// giving up on a descriptor under sustained transmit load.
+			ethernet::clearTxBuffers();
+			if (xTaskCheckForTimeOut(&timeout, &remainingTime) == pdTRUE) {
+				xSemaphoreGive(ethernet::txDescriptorSemaphore);
+				break;
+			}
+
+			taskYIELD();
+		}
+		if (not descriptorReady)
+			break;
 
 		uint32_t transmitSize = descriptor->xDataLength;
 		if (transmitSize > ethernet::TX_BUFFER_SIZE)

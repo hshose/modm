@@ -28,14 +28,25 @@ constexpr auto timers = Hrtim1::TimerCounter::A |
 						Hrtim1::TimerCounter::B |
 						Hrtim1::TimerCounter::C;
 
-constexpr Hrtim1::Value period = 20'000;
+// Board::SystemClock configures APB2 to 100 MHz. With the default HRTIM clock
+// selection and APB2 prescaler != 1, HRTIM1 runs at 2 * PCLK2 = 200 MHz.
+// Prescaler::Mul32 selects the high-resolution 32x time base:
+//
+//     200 MHz * 32 = 6.4 GHz
+//
+// A period of 3'200 therefore generates a 2 MHz PWM carrier.
+constexpr auto prescaler = Hrtim1::Prescaler::Mul32;
+constexpr Hrtim1::Value period = 3'200;
+
+// Dead time is inserted between each timer's output 1 and output 2.
+// With the Mul32 time base this fixed value is 64 / 6.4 GHz = 10 ns.
 constexpr Hrtim1::Value deadTime = 64;
 
 void
 configurePhase(Hrtim1::Timer timer,
 		Hrtim1::CompareUnit compare, Hrtim1::Value duty)
 {
-	Hrtim1::setMode(timer);
+	Hrtim1::setMode(timer, prescaler);
 	Hrtim1::setPeriod(timer, period);
 	Hrtim1::setCompareValue(timer, compare, duty);
 	Hrtim1::setDeadTime(timer, deadTime, deadTime);
@@ -93,6 +104,10 @@ main()
 
 	Hrtim1::start(timers);
 
+	// Sweep the high-side duty cycle from 10% to 90% in 0.5% steps.
+	// At 2 MHz this moves the high-side pulse width from 50 ns to 450 ns.
+	// The low-side outputs are inverted complements of the high-side outputs,
+	// with the dead time above inserted by HRTIM.
 	Hrtim1::Value duty = period / 2;
 	int16_t step = period / 200;
 

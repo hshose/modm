@@ -50,9 +50,7 @@ std::atomic<uint32_t> injectedA0Value{0};
 
 void
 incrementFromInterrupt(std::atomic<uint32_t>& counter)
-{
-	counter.fetch_add(1, std::memory_order_relaxed);
-}
+{ counter.fetch_add(1, std::memory_order_relaxed); }
 
 void
 stopOnCalibrationError()
@@ -66,9 +64,7 @@ configureHrtim()
 {
 	Hrtim1::connect<PwmOut::Cha1>();
 	Hrtim1::enable();
-	if (!Hrtim1::calibrate()) {
-		stopOnCalibrationError();
-	}
+	if (!Hrtim1::calibrate()) { stopOnCalibrationError(); }
 
 	Hrtim1::setMode(timer, prescaler);
 	Hrtim1::setPeriod(timer, period);
@@ -96,8 +92,7 @@ configureAdc()
 {
 	Adc1::connect<RegularInput::In1, InjectedInput::In2>();
 	Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler4, Adc1::ClockSource::SystemClock,
-					 Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode,
-					 true);
+					 Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
 
 	constexpr auto sampleTime = Adc1::SampleTime::Cycles13;
 	const bool channelsConfigured =

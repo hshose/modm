@@ -17,8 +17,7 @@ using PhaseCLow = GpioB15;
 
 namespace
 {
-constexpr auto timers = Hrtim1::TimerCounter::A | Hrtim1::TimerCounter::B |
-		Hrtim1::TimerCounter::D;
+constexpr auto timers = Hrtim1::TimerCounter::A | Hrtim1::TimerCounter::B | Hrtim1::TimerCounter::D;
 
 constexpr auto prescaler = Hrtim1::Prescaler::Mul32;
 
@@ -66,9 +65,7 @@ main()
 	Hrtim1::connect<PhaseAHigh::Cha1, PhaseALow::Cha2, PhaseBHigh::Chb1, PhaseBLow::Chb2,
 					PhaseCHigh::Chd1, PhaseCLow::Chd2>();
 	Hrtim1::enable();
-	if (!Hrtim1::calibrate()) {
-		stopOnCalibrationError();
-	}
+	if (!Hrtim1::calibrate()) { stopOnCalibrationError(); }
 
 	configureTimer(Hrtim1::Timer::A, periodA, dutyA);
 	configureTimer(Hrtim1::Timer::B, periodB, dutyB);

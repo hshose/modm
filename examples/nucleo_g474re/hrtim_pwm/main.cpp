@@ -24,8 +24,7 @@ using PhaseCLow = GpioB15;
 namespace
 {
 
-constexpr auto timers = Hrtim1::TimerCounter::A | Hrtim1::TimerCounter::B |
-		Hrtim1::TimerCounter::D;
+constexpr auto timers = Hrtim1::TimerCounter::A | Hrtim1::TimerCounter::B | Hrtim1::TimerCounter::D;
 
 // Board::SystemClock configures APB2 to 170 MHz. The G4 HRTIM kernel clock is
 // PCLK2, so Prescaler::Mul32 selects a 5.44 GHz high-resolution time base:
@@ -72,9 +71,7 @@ main()
 					PhaseCHigh::Chd1, PhaseCLow::Chd2>();
 
 	Hrtim1::enable();
-	if (!Hrtim1::calibrate()) {
-		stopOnCalibrationError();
-	}
+	if (!Hrtim1::calibrate()) { stopOnCalibrationError(); }
 
 	configurePhase(Hrtim1::Timer::A, Hrtim1::CompareUnit::Compare1, period / 2);
 	configurePhase(Hrtim1::Timer::B, Hrtim1::CompareUnit::Compare1, period / 2);

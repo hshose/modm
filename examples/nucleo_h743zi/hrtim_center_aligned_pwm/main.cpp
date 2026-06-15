@@ -38,9 +38,9 @@ static_assert(period == 64'000);
 // built by setting the high-side output at center - duty / 2 and resetting it at
 // center + duty / 2. The low-side output uses the opposite events.
 constexpr Hrtim1::Value center = period / 2;
-constexpr Hrtim1::Value phaseADuty = period / 2;        // 50%, high for 5 us
-constexpr Hrtim1::Value phaseBDuty = (period * 3) / 10; // 30%, high for 3 us
-constexpr Hrtim1::Value phaseCDuty = (period * 7) / 10; // 70%, high for 7 us
+constexpr Hrtim1::Value phaseADuty = period / 2;         // 50%, high for 5 us
+constexpr Hrtim1::Value phaseBDuty = (period * 3) / 10;  // 30%, high for 3 us
+constexpr Hrtim1::Value phaseCDuty = (period * 7) / 10;  // 70%, high for 7 us
 
 // Compare1 is the high-side midpoint interrupt at 5 us into the frame.
 // The low-side interval wraps around the period boundary, therefore the Timer A
@@ -56,9 +56,7 @@ std::atomic<uint32_t> lowCenterInterrupts{0};
 
 void
 incrementFromInterrupt(std::atomic<uint32_t>& counter)
-{
-	counter.store(counter.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
-}
+{ counter.store(counter.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed); }
 
 void
 setCenteredDuty(Hrtim1::Timer timer, Hrtim1::Value duty)
@@ -84,13 +82,11 @@ void
 configureCenteredOutputs()
 {
 	// High side: active from Compare2 to Compare3.
-	Hrtim1::configureOutput<HighSide>(Hrtim1::OutputEvent::Compare2,
-									  Hrtim1::OutputEvent::Compare3,
+	Hrtim1::configureOutput<HighSide>(Hrtim1::OutputEvent::Compare2, Hrtim1::OutputEvent::Compare3,
 									  Hrtim1::OutputPolarity::ActiveHigh, false);
 
 	// Low side: active from Compare3 until Compare2 in the next frame.
-	Hrtim1::configureOutput<LowSide>(Hrtim1::OutputEvent::Compare3,
-									 Hrtim1::OutputEvent::Compare2,
+	Hrtim1::configureOutput<LowSide>(Hrtim1::OutputEvent::Compare3, Hrtim1::OutputEvent::Compare2,
 									 Hrtim1::OutputPolarity::ActiveHigh, false);
 }
 
@@ -171,8 +167,8 @@ main()
 			LedGreen::toggle();
 
 			const uint32_t lowCenter = lowCenterInterrupts.load(std::memory_order_relaxed);
-			MODM_LOG_INFO << "high-center=" << highCenter
-						  << " low-center=" << lowCenter << modm::endl;
+			MODM_LOG_INFO << "high-center=" << highCenter << " low-center=" << lowCenter
+						  << modm::endl;
 		}
 
 		modm::delay(1ms);

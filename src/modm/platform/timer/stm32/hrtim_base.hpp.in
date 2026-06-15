@@ -1,0 +1,226 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_STM32_HRTIM_BASE_HPP
+#define MODM_STM32_HRTIM_BASE_HPP
+
+#include <stdint.h>
+#include "../device.hpp"
+#include <modm/architecture/interface/register.hpp>
+#include <modm/platform/core/peripherals.hpp>
+#include <modm/platform/gpio/data.hpp>
+
+namespace modm::platform
+{
+
+/// @ingroup modm_platform_timer
+class HighResolutionTimer
+{
+public:
+	using Value = uint16_t;
+
+	enum class Timer : uint8_t
+	{
+		A = 0,
+		B = 1,
+		C = 2,
+		D = 3,
+		E = 4,
+	};
+
+	enum class TimerCounter : uint32_t
+	{
+		Master = HRTIM_MCR_MCEN,
+		A = HRTIM_MCR_TACEN,
+		B = HRTIM_MCR_TBCEN,
+		C = HRTIM_MCR_TCCEN,
+		D = HRTIM_MCR_TDCEN,
+		E = HRTIM_MCR_TECEN,
+		All = HRTIM_MCR_TACEN | HRTIM_MCR_TBCEN | HRTIM_MCR_TCCEN |
+			  HRTIM_MCR_TDCEN | HRTIM_MCR_TECEN,
+	};
+	MODM_FLAGS32(TimerCounter);
+
+	enum class Output : uint8_t
+	{
+		Output1 = 0,
+		Output2 = 1,
+	};
+
+	enum class CompareUnit : uint8_t
+	{
+		Compare1 = 1,
+		Compare2 = 2,
+		Compare3 = 3,
+		Compare4 = 4,
+	};
+
+	enum class Prescaler : uint32_t
+	{
+		Div1 = 0,
+		Div2 = 1,
+		Div4 = 2,
+		Div8 = 3,
+		Div16 = 4,
+		Div32 = 5,
+		Div64 = 6,
+		Div128 = 7,
+	};
+
+	enum class OutputPolarity : uint8_t
+	{
+		ActiveHigh = 0,
+		ActiveLow = 1,
+	};
+
+	enum class OutputState : uint8_t
+	{
+		Pwm,
+		Low,
+		High,
+		HiZ,
+	};
+
+	enum class DeadTimePrescaler : uint32_t
+	{
+		Div1 = 0u << HRTIM_DTR_DTPRSC_Pos,
+		Div2 = 1u << HRTIM_DTR_DTPRSC_Pos,
+		Div4 = 2u << HRTIM_DTR_DTPRSC_Pos,
+		Div8 = 3u << HRTIM_DTR_DTPRSC_Pos,
+		Div16 = 4u << HRTIM_DTR_DTPRSC_Pos,
+		Div32 = 5u << HRTIM_DTR_DTPRSC_Pos,
+		Div64 = 6u << HRTIM_DTR_DTPRSC_Pos,
+		Div128 = 7u << HRTIM_DTR_DTPRSC_Pos,
+	};
+
+	enum class OutputEvent : uint32_t
+	{
+		None = 0,
+		Software = HRTIM_SET1R_SST,
+		Resync = HRTIM_SET1R_RESYNC,
+		Period = HRTIM_SET1R_PER,
+		Compare1 = HRTIM_SET1R_CMP1,
+		Compare2 = HRTIM_SET1R_CMP2,
+		Compare3 = HRTIM_SET1R_CMP3,
+		Compare4 = HRTIM_SET1R_CMP4,
+		MasterPeriod = HRTIM_SET1R_MSTPER,
+		MasterCompare1 = HRTIM_SET1R_MSTCMP1,
+		MasterCompare2 = HRTIM_SET1R_MSTCMP2,
+		MasterCompare3 = HRTIM_SET1R_MSTCMP3,
+		MasterCompare4 = HRTIM_SET1R_MSTCMP4,
+		TimerEvent1 = HRTIM_SET1R_TIMEVNT1,
+		TimerEvent2 = HRTIM_SET1R_TIMEVNT2,
+		TimerEvent3 = HRTIM_SET1R_TIMEVNT3,
+		TimerEvent4 = HRTIM_SET1R_TIMEVNT4,
+		TimerEvent5 = HRTIM_SET1R_TIMEVNT5,
+		TimerEvent6 = HRTIM_SET1R_TIMEVNT6,
+		TimerEvent7 = HRTIM_SET1R_TIMEVNT7,
+		TimerEvent8 = HRTIM_SET1R_TIMEVNT8,
+		TimerEvent9 = HRTIM_SET1R_TIMEVNT9,
+		ExternalEvent1 = HRTIM_SET1R_EXTVNT1,
+		ExternalEvent2 = HRTIM_SET1R_EXTVNT2,
+		ExternalEvent3 = HRTIM_SET1R_EXTVNT3,
+		ExternalEvent4 = HRTIM_SET1R_EXTVNT4,
+		ExternalEvent5 = HRTIM_SET1R_EXTVNT5,
+		ExternalEvent6 = HRTIM_SET1R_EXTVNT6,
+		ExternalEvent7 = HRTIM_SET1R_EXTVNT7,
+		ExternalEvent8 = HRTIM_SET1R_EXTVNT8,
+		ExternalEvent9 = HRTIM_SET1R_EXTVNT9,
+		ExternalEvent10 = HRTIM_SET1R_EXTVNT10,
+		Update = HRTIM_SET1R_UPDATE,
+	};
+	MODM_FLAGS32(OutputEvent);
+
+	struct OutputMapping
+	{
+		Timer timer;
+		Output output;
+	};
+
+protected:
+	static constexpr uint8_t
+	timerIndex(Timer timer)
+	{
+		return static_cast<uint8_t>(timer);
+	}
+
+	static constexpr uint8_t
+	outputIndex(Output output)
+	{
+		return static_cast<uint8_t>(output);
+	}
+
+	static constexpr uint32_t
+	outputMask(Timer timer, Output output)
+	{
+		return 1ul << (timerIndex(timer) * 2 + outputIndex(output));
+	}
+
+	static constexpr uint32_t
+	outputPolarityMask(Output output)
+	{
+		return (output == Output::Output1) ? HRTIM_OUTR_POL1 : HRTIM_OUTR_POL2;
+	}
+
+	static constexpr TimerCounter
+	timerCounter(Timer timer)
+	{
+		switch (timer)
+		{
+			case Timer::A: return TimerCounter::A;
+			case Timer::B: return TimerCounter::B;
+			case Timer::C: return TimerCounter::C;
+			case Timer::D: return TimerCounter::D;
+			case Timer::E: return TimerCounter::E;
+		}
+		return TimerCounter::A;
+	}
+
+	static constexpr OutputEvent
+	compareEvent(CompareUnit compare)
+	{
+		switch (compare)
+		{
+			case CompareUnit::Compare1: return OutputEvent::Compare1;
+			case CompareUnit::Compare2: return OutputEvent::Compare2;
+			case CompareUnit::Compare3: return OutputEvent::Compare3;
+			case CompareUnit::Compare4: return OutputEvent::Compare4;
+		}
+		return OutputEvent::None;
+	}
+
+	template<Peripheral p, typename Signal>
+	static consteval OutputMapping
+	signalToOutput()
+	{
+		modm::platform::detail::SignalConnection<Signal, p>{};
+%% if hrtim_signals | length
+%% for signal, timer, output in hrtim_signals
+%% if loop.first
+		if constexpr (Signal::Signal == Gpio::Signal::{{ signal }}) {
+			return {Timer::{{ timer | upper }}, Output::Output{{ output }}};
+%% else
+		} else if constexpr (Signal::Signal == Gpio::Signal::{{ signal }}) {
+			return {Timer::{{ timer | upper }}, Output::Output{{ output }}};
+%% endif
+%% endfor
+		} else {
+			static_assert(!sizeof(Signal), "Invalid HRTIM output signal");
+		}
+%% else
+		static_assert(!sizeof(Signal), "No HRTIM output signals available");
+%% endif
+	}
+};
+
+} // namespace modm::platform
+
+#endif // MODM_STM32_HRTIM_BASE_HPP

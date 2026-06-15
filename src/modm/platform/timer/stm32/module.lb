@@ -70,13 +70,39 @@ class Instance(Module):
         env.template("{}.cpp.in".format(self.type), "timer_{}.cpp".format(self.instance))
 
 
+class HrtimInstance(Module):
+    def __init__(self, driver, instance):
+        self.driver = driver
+        self.instance = int(instance)
+        self.peripheral = "Hrtim{}".format(instance) if "instance" in driver else "Hrtim"
+
+    def init(self, module):
+        module.name = "hrtim{}".format(self.instance)
+        module.description = "HRTIM instance {}".format(self.instance)
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        global props
+        props["id"] = self.instance
+        props["peripheral"] = self.peripheral
+
+        env.substitutions = props
+        env.outbasepath = "modm/src/modm/platform/timer"
+        env.template("hrtim.hpp.in", "hrtim_{}.hpp".format(self.instance))
+        env.template("hrtim.cpp.in", "hrtim_{}.cpp".format(self.instance))
+
+
 def init(module):
     module.name = ":platform:timer"
     module.description = "Timers (TIM)"
 
 def prepare(module, options):
     device = options[":target"]
-    if not device.has_driver("tim:stm32*"):
+    has_tim = device.has_driver("tim:stm32*")
+    has_hrtim = device.has_driver("hrtim:stm32-hrtim_h7")
+    if not (has_tim or has_hrtim):
         return False
 
     module.depends(
@@ -85,17 +111,29 @@ def prepare(module, options):
         ":platform:gpio",
         ":platform:rcc")
 
-    timers = device.get_all_drivers("tim")
     instances = []
-    for driver in timers:
-        for instance in driver["instance"]:
-            module.add_submodule(Instance(driver, instance))
-            instances.append(int(instance))
+    if has_tim:
+        timers = device.get_all_drivers("tim")
+        for driver in timers:
+            for instance in driver["instance"]:
+                module.add_submodule(Instance(driver, instance))
+                instances.append(int(instance))
+
+    hrtim_instances = []
+    if has_hrtim:
+        hrtims = device.get_all_drivers("hrtim")
+        for driver in hrtims:
+            if driver["type"] != "stm32-hrtim_h7":
+                continue
+            for instance in driver.get("instance", ["1"]):
+                module.add_submodule(HrtimInstance(driver, instance))
+                hrtim_instances.append(int(instance))
 
     global props
     device = options[":target"]
     props["target"] = target = device.identifier
     props["types"] = set()
+    props["hrtim_instances"] = hrtim_instances
     # extended advanced control timer with 6 channels and trigger out 2
     props["advanced_extended"] = (target.family not in ["f0", "f1", "f2", "f3", "f4", "l0", "l1"]) or \
             ((target.family == "f3") and (target.name not in ["73", "78"]))
@@ -120,6 +158,9 @@ def build(env):
     all_signals = env.query(":platform:gpio:all_signals")
     props["signals"] = [pattern.match(s).groups() for s in all_signals if pattern.match(s)]
 
+    pattern = re.compile("^(Ch([a-e])([12]))$")
+    props["hrtim_signals"] = [pattern.match(s).groups() for s in all_signals if pattern.match(s)]
+
     # Only generate the base types for timers that were generated
     types = props["types"]
     if "advanced" in types:
@@ -128,4 +169,5 @@ def build(env):
         types.add("basic")
     for ttype in props["types"]:
         env.template("{}_base.hpp.in".format(ttype))
-
+    if props["hrtim_instances"]:
+        env.template("hrtim_base.hpp.in")

@@ -390,6 +390,16 @@ public:
 		Event29 = 0x1Du,
 		Event30 = 0x1Eu,
 		Event31 = 0x1Fu,
+%% if target["family"] in ["h7"]
+		HrtimRegularTrigger1 = Event16,
+		HrtimRegularTrigger3 = Event17,
+		HrtimInjectedTrigger2 = Event16,
+		HrtimInjectedTrigger4 = Event17,
+		HrtimTrigger1 = HrtimRegularTrigger1,
+		HrtimTrigger2 = HrtimInjectedTrigger2,
+		HrtimTrigger3 = HrtimRegularTrigger3,
+		HrtimTrigger4 = HrtimInjectedTrigger4,
+%% endif
 %% endif
 	};
 

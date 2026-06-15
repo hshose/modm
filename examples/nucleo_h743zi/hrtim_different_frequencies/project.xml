@@ -1,0 +1,12 @@
+<library>
+  <extends>modm:nucleo-h743zi</extends>
+
+  <options>
+    <option name="modm:build:build.path">../../../build/nucleo_h743zi/hrtim_different_frequencies</option>
+  </options>
+
+  <modules>
+    <module>modm:build:scons</module>
+    <module>modm:platform:timer:hrtim1</module>
+  </modules>
+</library>

@@ -13,6 +13,7 @@
 #define MODM_STM32_HRTIM_{{ id }}_HPP
 
 #include "hrtim_base.hpp"
+#include <span>
 #include <modm/platform/gpio/connector.hpp>
 
 namespace modm::platform
@@ -25,10 +26,9 @@ namespace modm::platform
  * two outputs and four compare registers. Output waveforms are configured via
  * the native HRTIM set/reset event sources.
  *
- * @warning The HRTIM peripheral can also generate ADC triggers, capture
- *          events, burst DMA transfers, external event filters and fault
- *          handling. These features are intentionally left for later
- *          extensions.
+ * @warning The HRTIM peripheral can also generate capture events, burst DMA
+ *          transfers, external event filters and fault handling. These
+ *          features are intentionally left for later extensions.
  *
  * @ingroup modm_platform_timer
  */
@@ -268,6 +268,26 @@ public:
 		return isOutputEnabled(mapping.timer, mapping.output);
 	}
 
+	static bool
+	configureAdcTrigger(AdcTrigger trigger, AdcTriggerSource source,
+			AdcTriggerUpdateSource updateSource = AdcTriggerUpdateSource::Master);
+
+	static bool
+	configureAdcTrigger(AdcTrigger trigger, std::span<const AdcTriggerSource> sources,
+			AdcTriggerUpdateSource updateSource = AdcTriggerUpdateSource::Master);
+
+	static bool
+	addAdcTriggerSource(AdcTrigger trigger, AdcTriggerSource source);
+
+	static void
+	clearAdcTrigger(AdcTrigger trigger);
+
+	static uint32_t
+	getAdcTriggerConfig(AdcTrigger trigger);
+
+	static void
+	setAdcTriggerUpdateSource(AdcTrigger trigger, AdcTriggerUpdateSource source);
+
 	static void
 	setDeadTime(Timer timer, uint16_t rising, uint16_t falling,
 			DeadTimePrescaler prescaler = DeadTimePrescaler::Div1);
@@ -287,6 +307,22 @@ protected:
 	{
 		return HRTIM{{ id }}->sTimerxRegs[timerIndex(timer)];
 	}
+
+	static inline volatile uint32_t&
+	adcTriggerRegister(AdcTrigger trigger)
+	{
+		switch (trigger)
+		{
+			case AdcTrigger::Trigger1: return HRTIM{{ id }}->sCommonRegs.ADC1R;
+			case AdcTrigger::Trigger2: return HRTIM{{ id }}->sCommonRegs.ADC2R;
+			case AdcTrigger::Trigger3: return HRTIM{{ id }}->sCommonRegs.ADC3R;
+			case AdcTrigger::Trigger4: return HRTIM{{ id }}->sCommonRegs.ADC4R;
+		}
+		return HRTIM{{ id }}->sCommonRegs.ADC1R;
+	}
+
+	static uint32_t
+	adcTriggerSourceMask(AdcTrigger trigger, AdcTriggerSource source);
 
 	static OutputPolarity
 	getOutputPolarity(Timer timer, Output output);

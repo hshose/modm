@@ -1,0 +1,11 @@
+<library>
+  <extends>modm:nucleo-h743zi</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/nucleo_h743zi/hrtim_adc_trigger</option>
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+    <module>modm:platform:adc:1</module>
+    <module>modm:platform:timer:hrtim1</module>
+  </modules>
+</library>

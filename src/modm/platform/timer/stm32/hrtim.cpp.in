@@ -43,6 +43,12 @@ resetMask(Hrtim::TimerCounter_t timers)
 	return mask;
 }
 
+constexpr uint32_t
+bit(uint8_t position)
+{
+	return 1ul << position;
+}
+
 } // namespace
 
 // ----------------------------------------------------------------------------
@@ -63,6 +69,10 @@ modm::platform::Hrtim{{ id }}::disable()
 	HRTIM{{ id }}->sCommonRegs.IER = 0;
 	HRTIM{{ id }}->sCommonRegs.CR1 = 0;
 	HRTIM{{ id }}->sCommonRegs.CR2 = 0;
+	HRTIM{{ id }}->sCommonRegs.ADC1R = 0;
+	HRTIM{{ id }}->sCommonRegs.ADC2R = 0;
+	HRTIM{{ id }}->sCommonRegs.ADC3R = 0;
+	HRTIM{{ id }}->sCommonRegs.ADC4R = 0;
 
 	HRTIM{{ id }}->sMasterRegs.MCR = 0;
 	HRTIM{{ id }}->sMasterRegs.MDIER = 0;
@@ -122,6 +132,124 @@ void
 modm::platform::Hrtim{{ id }}::applyAndReset(TimerCounter_t timers)
 {
 	HRTIM{{ id }}->sCommonRegs.CR2 = updateMask(timers) | resetMask(timers);
+}
+
+// ----------------------------------------------------------------------------
+uint32_t
+modm::platform::Hrtim{{ id }}::adcTriggerSourceMask(AdcTrigger trigger,
+		AdcTriggerSource source)
+{
+	switch (source)
+	{
+		case AdcTriggerSource::MasterCompare1: return bit(0);
+		case AdcTriggerSource::MasterCompare2: return bit(1);
+		case AdcTriggerSource::MasterCompare3: return bit(2);
+		case AdcTriggerSource::MasterCompare4: return bit(3);
+		case AdcTriggerSource::MasterPeriod: return bit(4);
+
+		case AdcTriggerSource::ExternalEvent1: return isAdcTrigger13(trigger) ? bit(5) : 0;
+		case AdcTriggerSource::ExternalEvent2: return isAdcTrigger13(trigger) ? bit(6) : 0;
+		case AdcTriggerSource::ExternalEvent3: return isAdcTrigger13(trigger) ? bit(7) : 0;
+		case AdcTriggerSource::ExternalEvent4: return isAdcTrigger13(trigger) ? bit(8) : 0;
+		case AdcTriggerSource::ExternalEvent5: return isAdcTrigger13(trigger) ? bit(9) : 0;
+		case AdcTriggerSource::ExternalEvent6: return isAdcTrigger24(trigger) ? bit(5) : 0;
+		case AdcTriggerSource::ExternalEvent7: return isAdcTrigger24(trigger) ? bit(6) : 0;
+		case AdcTriggerSource::ExternalEvent8: return isAdcTrigger24(trigger) ? bit(7) : 0;
+		case AdcTriggerSource::ExternalEvent9: return isAdcTrigger24(trigger) ? bit(8) : 0;
+		case AdcTriggerSource::ExternalEvent10: return isAdcTrigger24(trigger) ? bit(9) : 0;
+
+		case AdcTriggerSource::TimerACompare2: return bit(10);
+		case AdcTriggerSource::TimerACompare3: return bit(11);
+		case AdcTriggerSource::TimerACompare4: return bit(12);
+		case AdcTriggerSource::TimerAPeriod: return bit(13);
+		case AdcTriggerSource::TimerAReset: return isAdcTrigger13(trigger) ? bit(14) : 0;
+
+		case AdcTriggerSource::TimerBCompare2: return isAdcTrigger13(trigger) ? bit(15) : bit(14);
+		case AdcTriggerSource::TimerBCompare3: return isAdcTrigger13(trigger) ? bit(16) : bit(15);
+		case AdcTriggerSource::TimerBCompare4: return isAdcTrigger13(trigger) ? bit(17) : bit(16);
+		case AdcTriggerSource::TimerBPeriod: return isAdcTrigger13(trigger) ? bit(18) : bit(17);
+		case AdcTriggerSource::TimerBReset: return isAdcTrigger13(trigger) ? bit(19) : 0;
+
+		case AdcTriggerSource::TimerCCompare2: return isAdcTrigger13(trigger) ? bit(20) : bit(18);
+		case AdcTriggerSource::TimerCCompare3: return isAdcTrigger13(trigger) ? bit(21) : bit(19);
+		case AdcTriggerSource::TimerCCompare4: return isAdcTrigger13(trigger) ? bit(22) : bit(20);
+		case AdcTriggerSource::TimerCPeriod: return isAdcTrigger13(trigger) ? bit(23) : bit(21);
+		case AdcTriggerSource::TimerCReset: return isAdcTrigger24(trigger) ? bit(22) : 0;
+
+		case AdcTriggerSource::TimerDCompare2: return isAdcTrigger13(trigger) ? bit(24) : bit(23);
+		case AdcTriggerSource::TimerDCompare3: return isAdcTrigger13(trigger) ? bit(25) : bit(24);
+		case AdcTriggerSource::TimerDCompare4: return isAdcTrigger13(trigger) ? bit(26) : bit(25);
+		case AdcTriggerSource::TimerDPeriod: return isAdcTrigger13(trigger) ? bit(27) : bit(26);
+		case AdcTriggerSource::TimerDReset: return isAdcTrigger24(trigger) ? bit(27) : 0;
+
+		case AdcTriggerSource::TimerECompare2: return bit(28);
+		case AdcTriggerSource::TimerECompare3: return bit(29);
+		case AdcTriggerSource::TimerECompare4: return bit(30);
+		case AdcTriggerSource::TimerEPeriod: return isAdcTrigger13(trigger) ? bit(31) : 0;
+		case AdcTriggerSource::TimerEReset: return isAdcTrigger24(trigger) ? bit(31) : 0;
+	}
+	return 0;
+}
+
+bool
+modm::platform::Hrtim{{ id }}::configureAdcTrigger(AdcTrigger trigger,
+		AdcTriggerSource source, AdcTriggerUpdateSource updateSource)
+{
+	std::span<const AdcTriggerSource> sources(&source, 1);
+	return configureAdcTrigger(trigger, sources, updateSource);
+}
+
+bool
+modm::platform::Hrtim{{ id }}::configureAdcTrigger(AdcTrigger trigger,
+		std::span<const AdcTriggerSource> sources, AdcTriggerUpdateSource updateSource)
+{
+	uint32_t config = 0;
+	for (const auto source : sources)
+	{
+		const uint32_t mask = adcTriggerSourceMask(trigger, source);
+		if (mask == 0) {
+			return false;
+		}
+		config |= mask;
+	}
+
+	adcTriggerRegister(trigger) = config;
+	setAdcTriggerUpdateSource(trigger, updateSource);
+	return true;
+}
+
+bool
+modm::platform::Hrtim{{ id }}::addAdcTriggerSource(AdcTrigger trigger,
+		AdcTriggerSource source)
+{
+	const uint32_t mask = adcTriggerSourceMask(trigger, source);
+	if (mask == 0) {
+		return false;
+	}
+	adcTriggerRegister(trigger) |= mask;
+	return true;
+}
+
+void
+modm::platform::Hrtim{{ id }}::clearAdcTrigger(AdcTrigger trigger)
+{
+	adcTriggerRegister(trigger) = 0;
+}
+
+uint32_t
+modm::platform::Hrtim{{ id }}::getAdcTriggerConfig(AdcTrigger trigger)
+{
+	return adcTriggerRegister(trigger);
+}
+
+void
+modm::platform::Hrtim{{ id }}::setAdcTriggerUpdateSource(AdcTrigger trigger,
+		AdcTriggerUpdateSource source)
+{
+	const uint32_t mask = adcTriggerUpdateSourceMask(trigger);
+	HRTIM{{ id }}->sCommonRegs.CR1 =
+			(HRTIM{{ id }}->sCommonRegs.CR1 & ~mask) |
+			adcTriggerUpdateSource(trigger, source);
 }
 
 // ----------------------------------------------------------------------------

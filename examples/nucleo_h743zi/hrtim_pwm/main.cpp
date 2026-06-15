@@ -15,18 +15,16 @@ using namespace Board;
 using namespace modm::literals;
 
 using PhaseAHigh = GpioC6;
-using PhaseALow  = GpioC7;
+using PhaseALow = GpioC7;
 using PhaseBHigh = GpioC8;
-using PhaseBLow  = GpioA8;
+using PhaseBLow = GpioA8;
 using PhaseCHigh = GpioA9;
-using PhaseCLow  = GpioA10;
+using PhaseCLow = GpioA10;
 
 namespace
 {
 
-constexpr auto timers = Hrtim1::TimerCounter::A |
-						Hrtim1::TimerCounter::B |
-						Hrtim1::TimerCounter::C;
+constexpr auto timers = Hrtim1::TimerCounter::A | Hrtim1::TimerCounter::B | Hrtim1::TimerCounter::C;
 
 // Board::SystemClock configures APB2 to 100 MHz. With the default HRTIM clock
 // selection and APB2 prescaler != 1, HRTIM1 runs at 2 * PCLK2 = 200 MHz.
@@ -43,8 +41,7 @@ constexpr Hrtim1::Value period = 3'200;
 constexpr Hrtim1::Value deadTime = 64;
 
 void
-configurePhase(Hrtim1::Timer timer,
-		Hrtim1::CompareUnit compare, Hrtim1::Value duty)
+configurePhase(Hrtim1::Timer timer, Hrtim1::CompareUnit compare, Hrtim1::Value duty)
 {
 	Hrtim1::setMode(timer, prescaler);
 	Hrtim1::setPeriod(timer, period);
@@ -52,7 +49,7 @@ configurePhase(Hrtim1::Timer timer,
 	Hrtim1::setDeadTime(timer, deadTime, deadTime);
 }
 
-} // namespace
+}  // namespace
 
 int
 main()
@@ -61,10 +58,8 @@ main()
 
 	MODM_LOG_INFO << "modm example: HRTIM complementary PWM" << modm::endl;
 
-	Hrtim1::connect<
-		PhaseAHigh::Cha1, PhaseALow::Cha2,
-		PhaseBHigh::Chb1, PhaseBLow::Chb2,
-		PhaseCHigh::Chc1, PhaseCLow::Chc2>();
+	Hrtim1::connect<PhaseAHigh::Cha1, PhaseALow::Cha2, PhaseBHigh::Chb1, PhaseBLow::Chb2,
+					PhaseCHigh::Chc1, PhaseCLow::Chc2>();
 
 	Hrtim1::enable();
 
@@ -72,26 +67,20 @@ main()
 	configurePhase(Hrtim1::Timer::B, Hrtim1::CompareUnit::Compare1, period / 2);
 	configurePhase(Hrtim1::Timer::C, Hrtim1::CompareUnit::Compare1, period / 2);
 
-	Hrtim1::configurePwm<PhaseAHigh::Cha1>(
-			Hrtim1::CompareUnit::Compare1, period / 2,
-			Hrtim1::OutputPolarity::ActiveHigh, false, false);
-	Hrtim1::configurePwm<PhaseALow::Cha2>(
-			Hrtim1::CompareUnit::Compare1, period / 2,
-			Hrtim1::OutputPolarity::ActiveHigh, true, false);
+	Hrtim1::configurePwm<PhaseAHigh::Cha1>(Hrtim1::CompareUnit::Compare1, period / 2,
+										   Hrtim1::OutputPolarity::ActiveHigh, false, false);
+	Hrtim1::configurePwm<PhaseALow::Cha2>(Hrtim1::CompareUnit::Compare1, period / 2,
+										  Hrtim1::OutputPolarity::ActiveHigh, true, false);
 
-	Hrtim1::configurePwm<PhaseBHigh::Chb1>(
-			Hrtim1::CompareUnit::Compare1, period / 2,
-			Hrtim1::OutputPolarity::ActiveHigh, false, false);
-	Hrtim1::configurePwm<PhaseBLow::Chb2>(
-			Hrtim1::CompareUnit::Compare1, period / 2,
-			Hrtim1::OutputPolarity::ActiveHigh, true, false);
+	Hrtim1::configurePwm<PhaseBHigh::Chb1>(Hrtim1::CompareUnit::Compare1, period / 2,
+										   Hrtim1::OutputPolarity::ActiveHigh, false, false);
+	Hrtim1::configurePwm<PhaseBLow::Chb2>(Hrtim1::CompareUnit::Compare1, period / 2,
+										  Hrtim1::OutputPolarity::ActiveHigh, true, false);
 
-	Hrtim1::configurePwm<PhaseCHigh::Chc1>(
-			Hrtim1::CompareUnit::Compare1, period / 2,
-			Hrtim1::OutputPolarity::ActiveHigh, false, false);
-	Hrtim1::configurePwm<PhaseCLow::Chc2>(
-			Hrtim1::CompareUnit::Compare1, period / 2,
-			Hrtim1::OutputPolarity::ActiveHigh, true, false);
+	Hrtim1::configurePwm<PhaseCHigh::Chc1>(Hrtim1::CompareUnit::Compare1, period / 2,
+										   Hrtim1::OutputPolarity::ActiveHigh, false, false);
+	Hrtim1::configurePwm<PhaseCLow::Chc2>(Hrtim1::CompareUnit::Compare1, period / 2,
+										  Hrtim1::OutputPolarity::ActiveHigh, true, false);
 
 	Hrtim1::applyAndReset(timers);
 
@@ -114,9 +103,7 @@ main()
 	while (true)
 	{
 		duty += step;
-		if (duty >= (period * 9) / 10 || duty <= period / 10) {
-			step = -step;
-		}
+		if (duty >= (period * 9) / 10 || duty <= period / 10) { step = -step; }
 
 		Hrtim1::setCompareValue(Hrtim1::Timer::A, Hrtim1::CompareUnit::Compare1, duty);
 		Hrtim1::setCompareValue(Hrtim1::Timer::B, Hrtim1::CompareUnit::Compare1, duty);

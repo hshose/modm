@@ -1,0 +1,297 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_STM32_HRTIM_{{ id }}_HPP
+#define MODM_STM32_HRTIM_{{ id }}_HPP
+
+#include "hrtim_base.hpp"
+#include <modm/platform/gpio/connector.hpp>
+
+namespace modm::platform
+{
+
+/**
+ * @brief High Resolution Timer {{ id }}
+ *
+ * This driver exposes the HRTIM waveform timers A-E. Each waveform timer has
+ * two outputs and four compare registers. Output waveforms are configured via
+ * the native HRTIM set/reset event sources.
+ *
+ * @warning The HRTIM peripheral can also generate ADC triggers, capture
+ *          events, burst DMA transfers, external event filters and fault
+ *          handling. These features are intentionally left for later
+ *          extensions.
+ *
+ * @ingroup modm_platform_timer
+ */
+class Hrtim{{ id }} : public HighResolutionTimer
+{
+public:
+	template<class... Signals>
+	static void
+	connect()
+	{
+		using Connector = GpioConnector<Peripheral::{{ peripheral }}, Signals...>;
+		Connector::connect();
+	}
+
+	static void
+	enable();
+
+	static void
+	disable();
+
+	static bool
+	isEnabled();
+
+	static void
+	setMode(Timer timer, Prescaler prescaler = Prescaler::Div1,
+			bool preload = true, bool continuous = true,
+			bool updateOnRepetition = true);
+
+	static inline void
+	start(TimerCounter_t timers)
+	{
+		HRTIM{{ id }}->sMasterRegs.MCR |= timers.value;
+	}
+
+	static inline void
+	start(Timer timer)
+	{
+		start(timerCounter(timer));
+	}
+
+	static inline void
+	pause(TimerCounter_t timers)
+	{
+		HRTIM{{ id }}->sMasterRegs.MCR &= ~timers.value;
+	}
+
+	static inline void
+	pause(Timer timer)
+	{
+		pause(timerCounter(timer));
+	}
+
+	static void
+	applyUpdate(TimerCounter_t timers);
+
+	static inline void
+	applyUpdate(Timer timer)
+	{
+		applyUpdate(timerCounter(timer));
+	}
+
+	static void
+	reset(TimerCounter_t timers);
+
+	static inline void
+	reset(Timer timer)
+	{
+		reset(timerCounter(timer));
+	}
+
+	static void
+	applyAndReset(TimerCounter_t timers);
+
+	static inline void
+	applyAndReset(Timer timer)
+	{
+		applyAndReset(timerCounter(timer));
+	}
+
+	static inline void
+	setPeriod(Timer timer, Value period)
+	{
+		timerRegisters(timer).PERxR = period;
+	}
+
+	static inline Value
+	getPeriod(Timer timer)
+	{
+		return timerRegisters(timer).PERxR;
+	}
+
+	static inline void
+	setRepetitionCount(Timer timer, uint8_t count)
+	{
+		timerRegisters(timer).REPxR = count;
+	}
+
+	static inline void
+	setValue(Timer timer, Value value)
+	{
+		timerRegisters(timer).CNTxR = value;
+	}
+
+	static inline Value
+	getValue(Timer timer)
+	{
+		return timerRegisters(timer).CNTxR;
+	}
+
+	static inline void
+	setCompareValue(Timer timer, CompareUnit compare, Value value)
+	{
+		auto& regs = timerRegisters(timer);
+		switch (compare)
+		{
+			case CompareUnit::Compare1: regs.CMP1xR = value; break;
+			case CompareUnit::Compare2: regs.CMP2xR = value; break;
+			case CompareUnit::Compare3: regs.CMP3xR = value; break;
+			case CompareUnit::Compare4: regs.CMP4xR = value; break;
+		}
+	}
+
+	template<typename Signal>
+	static inline void
+	setCompareValue(CompareUnit compare, Value value)
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		setCompareValue(mapping.timer, compare, value);
+	}
+
+	static inline Value
+	getCompareValue(Timer timer, CompareUnit compare)
+	{
+		auto& regs = timerRegisters(timer);
+		switch (compare)
+		{
+			case CompareUnit::Compare1: return regs.CMP1xR;
+			case CompareUnit::Compare2: return regs.CMP2xR;
+			case CompareUnit::Compare3: return regs.CMP3xR;
+			case CompareUnit::Compare4: return regs.CMP4xR;
+		}
+		return 0;
+	}
+
+	template<typename Signal>
+	static inline Value
+	getCompareValue(CompareUnit compare)
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		return getCompareValue(mapping.timer, compare);
+	}
+
+	static void
+	configureOutput(Timer timer, Output output,
+			OutputEvent_t setSource, OutputEvent_t resetSource,
+			OutputPolarity polarity = OutputPolarity::ActiveHigh,
+			bool enable = false);
+
+	template<typename Signal>
+	static void
+	configureOutput(OutputEvent_t setSource, OutputEvent_t resetSource,
+			OutputPolarity polarity = OutputPolarity::ActiveHigh,
+			bool enable = false)
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		configureOutput(mapping.timer, mapping.output, setSource, resetSource, polarity, enable);
+	}
+
+	static void
+	configurePwm(Timer timer, Output output, CompareUnit compare,
+			Value compareValue,
+			OutputPolarity polarity = OutputPolarity::ActiveHigh,
+			bool inverted = false, bool enable = true);
+
+	template<typename Signal>
+	static void
+	configurePwm(CompareUnit compare, Value compareValue,
+			OutputPolarity polarity = OutputPolarity::ActiveHigh,
+			bool inverted = false, bool enable = true)
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		configurePwm(mapping.timer, mapping.output, compare, compareValue, polarity, inverted, enable);
+	}
+
+	static void
+	setOutputState(Timer timer, Output output, OutputState state,
+			CompareUnit compare = CompareUnit::Compare1, bool inverted = false);
+
+	template<typename Signal>
+	static void
+	setOutputState(OutputState state,
+			CompareUnit compare = CompareUnit::Compare1, bool inverted = false)
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		setOutputState(mapping.timer, mapping.output, state, compare, inverted);
+	}
+
+	static inline void
+	enableOutput(Timer timer, Output output)
+	{
+		HRTIM{{ id }}->sCommonRegs.OENR = outputMask(timer, output);
+	}
+
+	template<typename Signal>
+	static inline void
+	enableOutput()
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		enableOutput(mapping.timer, mapping.output);
+	}
+
+	static inline void
+	disableOutput(Timer timer, Output output)
+	{
+		HRTIM{{ id }}->sCommonRegs.ODISR = outputMask(timer, output);
+	}
+
+	template<typename Signal>
+	static inline void
+	disableOutput()
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		disableOutput(mapping.timer, mapping.output);
+	}
+
+	static inline bool
+	isOutputEnabled(Timer timer, Output output)
+	{
+		return (HRTIM{{ id }}->sCommonRegs.ODSR & outputMask(timer, output)) == 0;
+	}
+
+	template<typename Signal>
+	static inline bool
+	isOutputEnabled()
+	{
+		constexpr auto mapping = signalToOutput<Peripheral::{{ peripheral }}, Signal>();
+		return isOutputEnabled(mapping.timer, mapping.output);
+	}
+
+	static void
+	setDeadTime(Timer timer, uint16_t rising, uint16_t falling,
+			DeadTimePrescaler prescaler = DeadTimePrescaler::Div1);
+
+	static void
+	enableDeadTime(Timer timer, bool enable = true);
+
+	static inline constexpr bool
+	hasAdvancedPwmControl()
+	{
+		return true;
+	}
+
+protected:
+	static inline HRTIM_Timerx_TypeDef&
+	timerRegisters(Timer timer)
+	{
+		return HRTIM{{ id }}->sTimerxRegs[timerIndex(timer)];
+	}
+
+	static OutputPolarity
+	getOutputPolarity(Timer timer, Output output);
+};
+
+} // namespace modm::platform
+
+#endif // MODM_STM32_HRTIM_{{ id }}_HPP

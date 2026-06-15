@@ -1,0 +1,239 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#include "hrtim_{{ id }}.hpp"
+#include <modm/platform/clock/rcc.hpp>
+
+namespace
+{
+
+using Hrtim = modm::platform::Hrtim{{ id }};
+
+uint32_t
+updateMask(Hrtim::TimerCounter_t timers)
+{
+	uint32_t mask = 0;
+	if (timers & Hrtim::TimerCounter::Master) mask |= HRTIM_CR2_MSWU;
+	if (timers & Hrtim::TimerCounter::A) mask |= HRTIM_CR2_TASWU;
+	if (timers & Hrtim::TimerCounter::B) mask |= HRTIM_CR2_TBSWU;
+	if (timers & Hrtim::TimerCounter::C) mask |= HRTIM_CR2_TCSWU;
+	if (timers & Hrtim::TimerCounter::D) mask |= HRTIM_CR2_TDSWU;
+	if (timers & Hrtim::TimerCounter::E) mask |= HRTIM_CR2_TESWU;
+	return mask;
+}
+
+uint32_t
+resetMask(Hrtim::TimerCounter_t timers)
+{
+	uint32_t mask = 0;
+	if (timers & Hrtim::TimerCounter::Master) mask |= HRTIM_CR2_MRST;
+	if (timers & Hrtim::TimerCounter::A) mask |= HRTIM_CR2_TARST;
+	if (timers & Hrtim::TimerCounter::B) mask |= HRTIM_CR2_TBRST;
+	if (timers & Hrtim::TimerCounter::C) mask |= HRTIM_CR2_TCRST;
+	if (timers & Hrtim::TimerCounter::D) mask |= HRTIM_CR2_TDRST;
+	if (timers & Hrtim::TimerCounter::E) mask |= HRTIM_CR2_TERST;
+	return mask;
+}
+
+} // namespace
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Hrtim{{ id }}::enable()
+{
+	Rcc::enable<Peripheral::{{ peripheral }}>();
+}
+
+void
+modm::platform::Hrtim{{ id }}::disable()
+{
+	HRTIM{{ id }}->sCommonRegs.ODISR = HRTIM_ODISR_TA1ODIS | HRTIM_ODISR_TA2ODIS |
+			HRTIM_ODISR_TB1ODIS | HRTIM_ODISR_TB2ODIS |
+			HRTIM_ODISR_TC1ODIS | HRTIM_ODISR_TC2ODIS |
+			HRTIM_ODISR_TD1ODIS | HRTIM_ODISR_TD2ODIS |
+			HRTIM_ODISR_TE1ODIS | HRTIM_ODISR_TE2ODIS;
+	HRTIM{{ id }}->sCommonRegs.IER = 0;
+	HRTIM{{ id }}->sCommonRegs.CR1 = 0;
+	HRTIM{{ id }}->sCommonRegs.CR2 = 0;
+
+	HRTIM{{ id }}->sMasterRegs.MCR = 0;
+	HRTIM{{ id }}->sMasterRegs.MDIER = 0;
+
+	for (auto& regs : HRTIM{{ id }}->sTimerxRegs)
+	{
+		regs.TIMxCR = 0;
+		regs.TIMxDIER = 0;
+		regs.SETx1R = 0;
+		regs.RSTx1R = 0;
+		regs.SETx2R = 0;
+		regs.RSTx2R = 0;
+		regs.OUTxR = 0;
+	}
+
+	Rcc::disable<Peripheral::{{ peripheral }}>();
+}
+
+bool
+modm::platform::Hrtim{{ id }}::isEnabled()
+{
+	return Rcc::isEnabled<Peripheral::{{ peripheral }}>();
+}
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Hrtim{{ id }}::setMode(Timer timer, Prescaler prescaler,
+		bool preload, bool continuous, bool updateOnRepetition)
+{
+	uint32_t cr = static_cast<uint32_t>(prescaler) & HRTIM_TIMCR_CK_PSC;
+	if (continuous) {
+		cr |= HRTIM_TIMCR_CONT;
+	}
+	if (preload) {
+		cr |= HRTIM_TIMCR_PREEN;
+	}
+	if (updateOnRepetition) {
+		cr |= HRTIM_TIMCR_TREPU;
+	}
+
+	timerRegisters(timer).TIMxCR = cr;
+}
+
+void
+modm::platform::Hrtim{{ id }}::applyUpdate(TimerCounter_t timers)
+{
+	HRTIM{{ id }}->sCommonRegs.CR2 = updateMask(timers);
+}
+
+void
+modm::platform::Hrtim{{ id }}::reset(TimerCounter_t timers)
+{
+	HRTIM{{ id }}->sCommonRegs.CR2 = resetMask(timers);
+}
+
+void
+modm::platform::Hrtim{{ id }}::applyAndReset(TimerCounter_t timers)
+{
+	HRTIM{{ id }}->sCommonRegs.CR2 = updateMask(timers) | resetMask(timers);
+}
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Hrtim{{ id }}::configureOutput(Timer timer, Output output,
+		OutputEvent_t setSource, OutputEvent_t resetSource,
+		OutputPolarity polarity, bool enable)
+{
+	auto& regs = timerRegisters(timer);
+	const uint32_t polarityMask = outputPolarityMask(output);
+
+	if (output == Output::Output1)
+	{
+		regs.SETx1R = setSource.value;
+		regs.RSTx1R = resetSource.value;
+	}
+	else
+	{
+		regs.SETx2R = setSource.value;
+		regs.RSTx2R = resetSource.value;
+	}
+
+	uint32_t out = regs.OUTxR & ~polarityMask;
+	if (polarity == OutputPolarity::ActiveLow) {
+		out |= polarityMask;
+	}
+	regs.OUTxR = out;
+
+	if (enable) {
+		enableOutput(timer, output);
+	}
+	else {
+		disableOutput(timer, output);
+	}
+}
+
+void
+modm::platform::Hrtim{{ id }}::configurePwm(Timer timer, Output output,
+		CompareUnit compare, Value compareValue,
+		OutputPolarity polarity, bool inverted, bool enable)
+{
+	setCompareValue(timer, compare, compareValue);
+
+	const OutputEvent_t compareSource(compareEvent(compare));
+	const OutputEvent_t periodSource(OutputEvent::Period);
+	configureOutput(timer, output,
+			inverted ? compareSource : periodSource,
+			inverted ? periodSource : compareSource,
+			polarity, enable);
+}
+
+void
+modm::platform::Hrtim{{ id }}::setOutputState(Timer timer, Output output,
+		OutputState state, CompareUnit compare, bool inverted)
+{
+	const auto polarity = getOutputPolarity(timer, output);
+
+	switch (state)
+	{
+		case OutputState::Pwm:
+		{
+			const OutputEvent_t compareSource(compareEvent(compare));
+			const OutputEvent_t periodSource(OutputEvent::Period);
+			configureOutput(timer, output,
+					inverted ? compareSource : periodSource,
+					inverted ? periodSource : compareSource,
+					polarity, true);
+			break;
+		}
+		case OutputState::Low:
+		case OutputState::High:
+		{
+			const bool activeHigh = (polarity == OutputPolarity::ActiveHigh);
+			const bool setActive = (state == OutputState::High) == activeHigh;
+			configureOutput(timer, output,
+					setActive ? OutputEvent::Software : OutputEvent::None,
+					setActive ? OutputEvent::None : OutputEvent::Software,
+					polarity, true);
+			break;
+		}
+		case OutputState::HiZ:
+			disableOutput(timer, output);
+			break;
+	}
+}
+
+void
+modm::platform::Hrtim{{ id }}::setDeadTime(Timer timer, uint16_t rising,
+		uint16_t falling, DeadTimePrescaler prescaler)
+{
+	timerRegisters(timer).DTxR =
+			(static_cast<uint32_t>(rising) & 0x1fful) |
+			((static_cast<uint32_t>(falling) & 0x1fful) << HRTIM_DTR_DTF_Pos) |
+			static_cast<uint32_t>(prescaler);
+	enableDeadTime(timer);
+}
+
+void
+modm::platform::Hrtim{{ id }}::enableDeadTime(Timer timer, bool enable)
+{
+	auto& regs = timerRegisters(timer);
+	if (enable) {
+		regs.OUTxR |= HRTIM_OUTR_DTEN;
+	}
+	else {
+		regs.OUTxR &= ~HRTIM_OUTR_DTEN;
+	}
+}
+
+modm::platform::Hrtim{{ id }}::OutputPolarity
+modm::platform::Hrtim{{ id }}::getOutputPolarity(Timer timer, Output output)
+{
+	return (timerRegisters(timer).OUTxR & outputPolarityMask(output))
+			? OutputPolarity::ActiveLow : OutputPolarity::ActiveHigh;
+}

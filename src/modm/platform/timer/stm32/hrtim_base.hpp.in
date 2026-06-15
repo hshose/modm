@@ -65,14 +65,14 @@ public:
 
 	enum class Prescaler : uint32_t
 	{
-		Div1 = 0,
-		Div2 = 1,
-		Div4 = 2,
-		Div8 = 3,
-		Div16 = 4,
-		Div32 = 5,
-		Div64 = 6,
-		Div128 = 7,
+		Mul32 = 0,
+		Mul16 = HRTIM_TIMCR_CK_PSC_0,
+		Mul8  = HRTIM_TIMCR_CK_PSC_1,
+		Mul4  = HRTIM_TIMCR_CK_PSC_1 | HRTIM_TIMCR_CK_PSC_0,
+		Mul2  = HRTIM_TIMCR_CK_PSC_2,
+		Div1  = HRTIM_TIMCR_CK_PSC_2 | HRTIM_TIMCR_CK_PSC_0,
+		Div2  = HRTIM_TIMCR_CK_PSC_2 | HRTIM_TIMCR_CK_PSC_1,
+		Div4  = HRTIM_TIMCR_CK_PSC,
 	};
 
 	enum class OutputPolarity : uint8_t

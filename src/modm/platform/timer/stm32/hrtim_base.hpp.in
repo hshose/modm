@@ -139,6 +139,68 @@ public:
 	};
 	MODM_FLAGS32(OutputEvent);
 
+	enum class AdcTrigger : uint8_t
+	{
+		Trigger1 = 0,
+		Trigger2 = 1,
+		Trigger3 = 2,
+		Trigger4 = 3,
+	};
+
+	enum class AdcTriggerUpdateSource : uint8_t
+	{
+		Master = 0,
+		TimerA = 1,
+		TimerB = 2,
+		TimerC = 3,
+		TimerD = 4,
+		TimerE = 5,
+	};
+
+	enum class AdcTriggerSource : uint8_t
+	{
+		MasterCompare1,
+		MasterCompare2,
+		MasterCompare3,
+		MasterCompare4,
+		MasterPeriod,
+		ExternalEvent1,
+		ExternalEvent2,
+		ExternalEvent3,
+		ExternalEvent4,
+		ExternalEvent5,
+		ExternalEvent6,
+		ExternalEvent7,
+		ExternalEvent8,
+		ExternalEvent9,
+		ExternalEvent10,
+		TimerACompare2,
+		TimerACompare3,
+		TimerACompare4,
+		TimerAPeriod,
+		TimerAReset,
+		TimerBCompare2,
+		TimerBCompare3,
+		TimerBCompare4,
+		TimerBPeriod,
+		TimerBReset,
+		TimerCCompare2,
+		TimerCCompare3,
+		TimerCCompare4,
+		TimerCPeriod,
+		TimerCReset,
+		TimerDCompare2,
+		TimerDCompare3,
+		TimerDCompare4,
+		TimerDPeriod,
+		TimerDReset,
+		TimerECompare2,
+		TimerECompare3,
+		TimerECompare4,
+		TimerEPeriod,
+		TimerEReset,
+	};
+
 	struct OutputMapping
 	{
 		Timer timer;
@@ -168,6 +230,37 @@ protected:
 	outputPolarityMask(Output output)
 	{
 		return (output == Output::Output1) ? HRTIM_OUTR_POL1 : HRTIM_OUTR_POL2;
+	}
+
+	static constexpr uint8_t
+	adcTriggerIndex(AdcTrigger trigger)
+	{
+		return static_cast<uint8_t>(trigger);
+	}
+
+	static constexpr bool
+	isAdcTrigger13(AdcTrigger trigger)
+	{
+		return (trigger == AdcTrigger::Trigger1) || (trigger == AdcTrigger::Trigger3);
+	}
+
+	static constexpr bool
+	isAdcTrigger24(AdcTrigger trigger)
+	{
+		return !isAdcTrigger13(trigger);
+	}
+
+	static constexpr uint32_t
+	adcTriggerUpdateSourceMask(AdcTrigger trigger)
+	{
+		return HRTIM_CR1_ADC1USRC_Msk << (adcTriggerIndex(trigger) * 3);
+	}
+
+	static constexpr uint32_t
+	adcTriggerUpdateSource(AdcTrigger trigger, AdcTriggerUpdateSource source)
+	{
+		const auto position = HRTIM_CR1_ADC1USRC_Pos + (adcTriggerIndex(trigger) * 3);
+		return (static_cast<uint32_t>(source) << position) & adcTriggerUpdateSourceMask(trigger);
 	}
 
 	static constexpr TimerCounter

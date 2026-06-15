@@ -22,7 +22,11 @@ namespace modm::platform
 /**
  * @brief High Resolution Timer {{ id }}
  *
+%% if hrtim_has_timer_f
+ * This driver exposes the HRTIM waveform timers A-F. Each waveform timer has
+%% else
  * This driver exposes the HRTIM waveform timers A-E. Each waveform timer has
+%% endif
  * two outputs and four compare registers. Output waveforms are configured via
  * the native HRTIM set/reset event sources.
  *
@@ -52,6 +56,14 @@ public:
 	static bool
 	isEnabled();
 
+%% if hrtim_has_dll_calibration
+	static bool
+	calibrate(uint32_t timeout = 1000000);
+
+	static bool
+	isCalibrationReady();
+
+%% endif
 	static void
 	setMode(Timer timer, Prescaler prescaler = Prescaler::Div1,
 			bool preload = true, bool continuous = true,

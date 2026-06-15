@@ -34,6 +34,9 @@ public:
 		C = 2,
 		D = 3,
 		E = 4,
+%% if hrtim_has_timer_f
+		F = 5,
+%% endif
 	};
 
 	enum class TimerCounter : uint32_t
@@ -44,8 +47,14 @@ public:
 		C = HRTIM_MCR_TCCEN,
 		D = HRTIM_MCR_TDCEN,
 		E = HRTIM_MCR_TECEN,
+%% if hrtim_has_timer_f
+		F = HRTIM_MCR_TFCEN,
+		All = HRTIM_MCR_TACEN | HRTIM_MCR_TBCEN | HRTIM_MCR_TCCEN |
+			  HRTIM_MCR_TDCEN | HRTIM_MCR_TECEN | HRTIM_MCR_TFCEN,
+%% else
 		All = HRTIM_MCR_TACEN | HRTIM_MCR_TBCEN | HRTIM_MCR_TCCEN |
 			  HRTIM_MCR_TDCEN | HRTIM_MCR_TECEN,
+%% endif
 	};
 	MODM_FLAGS32(TimerCounter);
 
@@ -155,6 +164,9 @@ public:
 		TimerC = 3,
 		TimerD = 4,
 		TimerE = 5,
+%% if hrtim_has_timer_f
+		TimerF = 6,
+%% endif
 	};
 
 	enum class AdcTriggerSource : uint8_t
@@ -199,6 +211,13 @@ public:
 		TimerECompare4,
 		TimerEPeriod,
 		TimerEReset,
+%% if hrtim_has_timer_f
+		TimerFCompare2,
+		TimerFCompare3,
+		TimerFCompare4,
+		TimerFPeriod,
+		TimerFReset,
+%% endif
 	};
 
 	struct OutputMapping
@@ -273,6 +292,9 @@ protected:
 			case Timer::C: return TimerCounter::C;
 			case Timer::D: return TimerCounter::D;
 			case Timer::E: return TimerCounter::E;
+%% if hrtim_has_timer_f
+			case Timer::F: return TimerCounter::F;
+%% endif
 		}
 		return TimerCounter::A;
 	}

@@ -9,6 +9,9 @@
  */
 // ----------------------------------------------------------------------------
 
+#include <ctime>
+#include <cstring>
+
 #include <modm/board.hpp>
 #include <modm/driver/ethernet/lan8742a.hpp>
 #include <modm/processing/rtos.hpp>
@@ -170,7 +173,14 @@ NetworkInitTask networkInit;
 int
 main()
 {
-	Board::initialize();
+    // Workaround for a startup fault observed on STM32H753 Rev V when the
+    // Cortex-M7 caches are enabled before board clock initialization.
+    // Keep this workaround local to the example until the startup/cache ordering
+    // issue is understood.
+    SCB_DisableICache();
+    SCB_DisableDCache();
+    Board::initialize();
+
 	Leds::setOutput();
 	MODM_LOG_INFO << "\n\nReboot: Ethernet Example" << modm::endl;
 

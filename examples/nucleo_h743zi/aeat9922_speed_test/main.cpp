@@ -41,6 +41,9 @@ frequencyFromNanoseconds(uint32_t ns)
 int
 main()
 {
+	SCB_DisableICache();
+    SCB_DisableDCache();
+	
 	Board::initialize();
 	Board::Leds::setOutput();
 

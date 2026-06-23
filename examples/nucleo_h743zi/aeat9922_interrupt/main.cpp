@@ -10,6 +10,7 @@
 // ----------------------------------------------------------------------------
 
 #include <cstdint>
+#include <limits>
 
 #include "hardware.hpp"
 #include "tasks/encoder_interrupt.hpp"
@@ -20,10 +21,20 @@ using namespace std::chrono_literals;
 using EncoderHardware = Board::Encoder::Aeat9922;
 
 constexpr uint32_t ReportDivider = EncoderHardware::SampleFrequency;
+constexpr uint32_t CpuFrequencyMHz = Board::SystemClock::Frequency / 1'000'000;
+
+static uint32_t
+cyclesToNanoseconds(uint32_t cycles)
+{
+	return uint32_t(uint64_t(cycles) * 1000 / CpuFrequencyMHz);
+}
 
 int
 main()
 {
+	SCB_DisableICache();
+	SCB_DisableDCache();
+
 	Board::initialize();
 	Board::Leds::setOutput();
 
@@ -46,6 +57,19 @@ main()
 		if ((count - lastReportCount) >= ReportDivider)
 		{
 			lastReportCount = count;
+			const uint32_t benchmarkCount =
+				EncoderInterrupt::benchmarkCount.exchange(0, std::memory_order_relaxed);
+			const uint32_t totalCycles =
+				EncoderInterrupt::benchmarkTotalCycles.exchange(0, std::memory_order_relaxed);
+			const uint32_t minCycles = EncoderInterrupt::benchmarkMinCycles.exchange(
+				std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+			const uint32_t maxCycles =
+				EncoderInterrupt::benchmarkMaxCycles.exchange(0, std::memory_order_relaxed);
+			const uint32_t minNs = benchmarkCount ? cyclesToNanoseconds(minCycles) : 0;
+			const uint32_t meanNs =
+				benchmarkCount ? cyclesToNanoseconds((totalCycles + benchmarkCount / 2) / benchmarkCount) : 0;
+			const uint32_t maxNs = benchmarkCount ? cyclesToNanoseconds(maxCycles) : 0;
+
 			MODM_LOG_INFO << "raw_frame="
 			              << static_cast<unsigned long>(
 				                 Data::encoder.rawFrame.load(std::memory_order_relaxed))
@@ -64,6 +88,14 @@ main()
 			              << "/"
 			              << static_cast<unsigned long>(
 			                 Data::encoder.encoderErrorCount.load(std::memory_order_relaxed))
+			              << ", read+decode ns min/mean/max="
+			              << static_cast<unsigned long>(minNs)
+			              << "/"
+			              << static_cast<unsigned long>(meanNs)
+			              << "/"
+			              << static_cast<unsigned long>(maxNs)
+			              << ", bench_samples="
+			              << static_cast<unsigned long>(benchmarkCount)
 			              << modm::endl;
 		}
 		modm::delay(10ms);

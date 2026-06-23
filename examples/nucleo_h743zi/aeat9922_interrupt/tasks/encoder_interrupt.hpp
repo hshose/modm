@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 
 #include "../encoder.hpp"
 #include "../hardware.hpp"
@@ -28,6 +29,10 @@ static_assert(Data::Encoder::Resolution == Hardware::Resolution);
 inline uint32_t positionBuffer{0};
 
 inline std::atomic<uint32_t> readCount{0};
+inline std::atomic<uint32_t> benchmarkCount{0};
+inline std::atomic<uint32_t> benchmarkTotalCycles{0};
+inline std::atomic<uint32_t> benchmarkMinCycles{std::numeric_limits<uint32_t>::max()};
+inline std::atomic<uint32_t> benchmarkMaxCycles{0};
 
 } // namespace EncoderInterrupt
 
@@ -37,7 +42,16 @@ MODM_ISR(TIM2)
 
 	Timer::acknowledgeInterruptFlags(Timer::InterruptFlag::Update);
 
+	const uint32_t startCycles = DWT->CYCCNT;
 	Hardware::SpiTransfer::readPosition(positionBuffer);
 	updateEncoder(positionBuffer);
+	const uint32_t elapsedCycles = DWT->CYCCNT - startCycles;
+
+	benchmarkCount.fetch_add(1, std::memory_order_relaxed);
+	benchmarkTotalCycles.fetch_add(elapsedCycles, std::memory_order_relaxed);
+	if (elapsedCycles < benchmarkMinCycles.load(std::memory_order_relaxed))
+		benchmarkMinCycles.store(elapsedCycles, std::memory_order_relaxed);
+	if (elapsedCycles > benchmarkMaxCycles.load(std::memory_order_relaxed))
+		benchmarkMaxCycles.store(elapsedCycles, std::memory_order_relaxed);
 	readCount.fetch_add(1, std::memory_order_relaxed);
 }

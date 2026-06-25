@@ -1,4 +1,4 @@
-# STM32H743 raw Ethernet DMA + lwIP ping/UDP echo
+# STM32H743 raw Ethernet DMA + lwIP ping/UDP/TCP echo
 
 This example runs lwIP in bare-metal `NO_SYS=1` mode on top of the existing
 STM32 Ethernet DMA descriptor driver.
@@ -61,37 +61,10 @@ print("UDP echo test passed")
 ```
 
 Wireshark should show ARP if needed, a UDP packet from the PC to the board, and
-a UDP packet from the board back to the PC source address and port. DHCP, TCP,
-DNS, sockets, and netconn are intentionally disabled.
+a UDP packet from the board back to the PC source address and port. DHCP, DNS,
+sockets, and netconn are intentionally disabled.
 
-The UDP speed test server listens on port `5006`. Its binary protocol uses
-little-endian fields and a 20-byte header:
-
-```c
-uint32_t magic;        // 0x53504454
-uint16_t version;      // 1
-uint16_t type;
-uint32_t seq;
-uint32_t payload_len;  // full UDP payload size, including this header
-uint32_t timestamp_us;
-```
-
-Run a PC-to-board RX throughput test:
-
-```sh
-python3 tools/udp_speedtest.py rx --ip 192.168.1.50 --port 5006 --size 1472 --count 10000
-```
-
-Run a board-to-PC TX throughput test:
-
-```sh
-python3 tools/udp_speedtest.py tx --ip 192.168.1.50 --port 5006 --size 1472 --count 10000
-```
-
-The default `--size 1472` is the maximum UDP payload that fits in a standard
-1500-byte Ethernet MTU without IPv4 fragmentation. The board uses millisecond
-system time converted to microseconds for benchmark timestamps, so short tests
-have reduced timing precision.
+The UDP speed test app lives in `../lwip_speedtest`.
 
 The TCP echo server listens on port `5007`. Manual test with netcat:
 
@@ -112,23 +85,25 @@ python3 tools/tcp_echo_test.py --ip 192.168.1.50 --port 5007
 The script opens one TCP connection, sends small, 1 kB, and 4 kB payloads, and
 verifies that every echoed byte matches.
 
-## Ethernet TX zero-copy
+## Ethernet pbuf ownership
 
-The lwIP Ethernet interface tries zero-copy TX first when
-`ETH_TX_ZERO_COPY_ENABLE` is enabled in `ethernet_dma.hpp`. The fallback copy
-path remains available through `ETH_TX_COPY_FALLBACK_ENABLE`.
+The lwIP Ethernet bridge in `../../../ext/modm-lwip` is pbuf-only. TX maps each
+non-empty segment of the lwIP pbuf chain directly to one STM32 Ethernet TX
+descriptor. The driver first verifies that the full frame fits in the available
+descriptor ring, then calls `pbuf_ref()` once for the whole frame before handing
+descriptors to DMA. The driver stores that referenced pbuf on the last descriptor
+of the frame. `modm::lwip::ethernet::reclaimTxDescriptors()` scans completed TX
+descriptors from `modm::lwip::poll()` and releases the driver-held reference with
+`pbuf_free()` when the last descriptor completes.
 
-Zero-copy TX maps each non-empty segment of the lwIP pbuf chain directly to one
-STM32 Ethernet TX descriptor. The driver first verifies that the full frame can
-fit in the available descriptor ring, then calls `pbuf_ref()` once for the whole
-frame before handing descriptors to DMA. The driver stores that referenced pbuf
-on the last descriptor of the frame. `ethernet_dma::reclaimTxDescriptors()`
-scans completed TX descriptors from `network::poll()` and releases the
-driver-held reference with `pbuf_free()` when the last descriptor completes.
+RX hands DMA buffers to lwIP as custom pbufs. Each RX descriptor has a matching
+custom pbuf context, and the descriptor remains owned by lwIP until the pbuf free
+callback returns it to DMA. The bridge exposes diagnostics counters for descriptor
+starvation, custom pbuf allocation failures, and input errors.
 
-Frames that are too fragmented for the descriptor ring, or that cannot get
-descriptors immediately, fall back to the existing linear-copy TX path when the
-fallback option is enabled. RX remains copy-based.
+The STM32 lwIP backend always uses hardware TX checksum insertion. lwIP TX
+checksum generation for IPv4, UDP, TCP, and ICMP is disabled; RX checksum
+checking remains software-enabled.
 
 The lwIP heap starts at `__lwip_heap_start` inside the 128 kB Ethernet/lwIP MPU
 window in D2 SRAM2 at `0x30020000`. That region is configured non-cacheable for DMA, so pbuf
@@ -137,7 +112,7 @@ contains a cache-clean helper for payload pointers outside that MPU window, used
 only if D-cache is enabled.
 
 The lwIP usable heap is 10 kB (`MEM_SIZE`) and starts at linker symbol
-`__lwip_heap_start`, directly after the TX DMA buffer area in D2 SRAM2. The
+`__lwip_heap_start`, directly after the RX DMA buffer area in D2 SRAM2. The
 linker section reserves that heap plus lwIP allocator metadata. The MPU region
 covers all 128 kB of D2 SRAM2 at `0x30020000`. The Ethernet ring uses
 32 RX descriptors and 32 TX descriptors.

@@ -13,39 +13,41 @@
 #include <modm/processing.hpp>
 
 #include <modm_lwip.hpp>
-#include <modm_lwip_ethernet.hpp>
+
+#include "udp_speedtest.h"
 
 using namespace Board;
 
 int
 main()
 {
-	static constexpr modm::lwip::Config NetworkConfig {
+	SCB_DisableICache();
+	SCB_DisableDCache();
+	Board::initialize();
+
+	Leds::setOutput();
+	MODM_LOG_INFO << "\n\nReboot: lwIP UDP speedtest example" << modm::endl;
+
+	static constexpr modm::lwip::EthernetConfig network {
 		{ 192, 168, 1, 50 },
 		{ 255, 255, 255, 0 },
 		{ 192, 168, 1, 1 },
 	};
 
-	modm::lwip::ethernet::configureMemory();
+	if (!modm::lwip::Ethernet::initialize(network)) {
+		MODM_LOG_ERROR << "Ethernet/lwIP initialization failed" << modm::endl;
+	}
 
-	SCB_DisableICache();
-    SCB_DisableDCache();
-	Board::initialize();
-	modm::lwip::ethernet::configureMemory();
+	udp_speedtest_init();
 
-	Leds::setOutput();
-	MODM_LOG_INFO << "\n\nReboot: Ethernet DMA + lwIP ping example" << modm::endl;
-	modm::lwip::ethernet::initialize();
-	modm::lwip::initialize(NetworkConfig);
-
-	modm::ShortPeriodicTimer txTimer { 1s };
-
+	modm::ShortPeriodicTimer statusTimer { 1s };
 	while (true) {
-		if (txTimer.execute()) {
+		if (statusTimer.execute()) {
 			Leds::toggle();
-			modm::lwip::ethernet::pollStatus();
+			modm::lwip::Ethernet::pollStatus();
 		}
 
-		modm::lwip::poll();
+		modm::lwip::Ethernet::poll();
+		udp_speedtest_poll();
 	}
 }

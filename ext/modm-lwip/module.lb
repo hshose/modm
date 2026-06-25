@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2026, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+lwip_sources = [
+    "api/err.c",
+    "core/def.c",
+    "core/inet_chksum.c",
+    "core/init.c",
+    "core/ip.c",
+    "core/mem.c",
+    "core/memp.c",
+    "core/netif.c",
+    "core/pbuf.c",
+    "core/raw.c",
+    "core/sys.c",
+    "core/tcp.c",
+    "core/tcp_in.c",
+    "core/tcp_out.c",
+    "core/timeouts.c",
+    "core/udp.c",
+    "core/ipv4/etharp.c",
+    "core/ipv4/icmp.c",
+    "core/ipv4/ip4.c",
+    "core/ipv4/ip4_addr.c",
+]
+
+linkerscript_symbols = """\
+__ethernet_lwip_region_start = ORIGIN(D2_SRAM2);
+__ethernet_lwip_rx_desc_start = ORIGIN(D2_SRAM2);
+__ethernet_lwip_tx_desc_start = ORIGIN(D2_SRAM2) + 0x300;
+__ethernet_lwip_rx_buffer_start = ORIGIN(D2_SRAM2) + 0x600;
+__lwip_heap_start = ORIGIN(D2_SRAM2) + 0xc600;
+/* lwIP MEM_SIZE is the usable heap; reserve extra allocator metadata space. */
+__lwip_heap_end = __lwip_heap_start + 10K + 64;
+__ethernet_lwip_region_end = ORIGIN(D2_SRAM2) + LENGTH(D2_SRAM2);
+"""
+
+
+class ModmLwipNosys(Module):
+    def init(self, module):
+        module.name = "nosys"
+        module.description = """
+# lwIP no-OS raw API port
+
+This module provides the bare-metal lwIP polling API and `sys_now()`
+integration for modm.
+"""
+
+    def prepare(self, module, options):
+        module.depends(":modm-lwip", ":architecture:clock")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/ext/lwip"
+        env.template("port/modm_lwip.cpp.in", "modm_lwip.cpp")
+        env.copy("port/modm_lwip.hpp", "modm_lwip.hpp")
+        env.copy("include/modm_lwip", "modm_lwip")
+        env.copy("src/udp_socket.cpp", "udp_socket.cpp")
+        env.copy("src/tcp_connection.cpp", "tcp_connection.cpp")
+        env.copy("src/tcp_server.cpp", "tcp_server.cpp")
+        env.template("port/modm_lwip_time.cpp.in", "modm_lwip_time.cpp")
+        env.template("port/modm_lwip_assert.cpp.in", "modm_lwip_assert.cpp")
+
+
+class ModmLwipEthernetStm32(Module):
+    def init(self, module):
+        module.name = "stm32"
+        module.description = """
+# lwIP Ethernet via STM32 MAC/DMA
+
+This module bridges lwIP Ethernet netif I/O to modm's STM32 Ethernet driver.
+Currently the implementation targets STM32H7 with a LAN8742A PHY. The backend
+requires hardware TX checksum insertion and does not provide a software TX
+checksum fallback.
+"""
+
+    def prepare(self, module, options):
+        device = options[":target"]
+        if not device.has_driver("eth:stm32*"):
+            return False
+        if device.identifier.family not in ["h7"]:
+            return False
+
+        module.depends(
+            ":modm-lwip:ethernet",
+            ":platform:eth",
+            ":driver:lan8742a")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/ext/lwip"
+        env.copy("ethernet/stm32/modm_lwip_stm32_ethernet.hpp",
+                 "modm_lwip_stm32_ethernet.hpp")
+        env.copy("ethernet/stm32/modm_lwip_stm32_ethernet.cpp",
+                 "modm_lwip_stm32_ethernet.cpp")
+        env.collect(":platform:cortex-m:linkerscript.sections", linkerscript_symbols)
+
+
+class ModmLwipEthernet(Module):
+    def init(self, module):
+        module.name = "ethernet"
+        module.description = """
+# lwIP Ethernet netif bridge
+
+This module provides a generic lwIP Ethernet netif adapter and hook API for
+hardware-specific Ethernet backends.
+"""
+
+    def prepare(self, module, options):
+        module.depends(":modm-lwip:nosys")
+        module.add_submodule(ModmLwipEthernetStm32())
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/ext/lwip"
+        env.copy("ethernet/modm_lwip_ethernet.hpp", "modm_lwip_ethernet.hpp")
+        env.copy("ethernet/modm_lwip_netif.hpp", "modm_lwip_netif.hpp")
+        env.copy("ethernet/modm_lwip_netif.cpp", "modm_lwip_netif.cpp")
+        env.copy("lwip/src/netif/ethernet.c", "netif/ethernet.c")
+
+
+def init(module):
+    module.name = "modm-lwip"
+    module.description = """
+# lwIP
+
+lwIP is a small TCP/IP stack for embedded systems.
+
+This module integrates lwIP with modm using generated configuration headers,
+a no-OS modm port, and optional Ethernet backend adapters.
+"""
+
+
+def prepare(module, options):
+    module.add_submodule(ModmLwipNosys())
+    module.add_submodule(ModmLwipEthernet())
+    return True
+
+
+def build(env):
+    env.outbasepath = "modm/ext/lwip"
+
+    env.copy("lwip/src/lwip", "lwip")
+    env.copy("lwip/src/arch", "arch", ignore=env.ignore_files("cc.h"))
+    env.copy("port/cc.h", "arch/cc.h")
+    env.copy("lwip/src/netif", "netif", ignore=env.ignore_files("*.c", "FILES"))
+    env.template("config/lwipopts.h.in", "lwipopts.h")
+
+    for source in lwip_sources:
+        files = env.copy("lwip/src/" + source, source)
+        if source == "core/inet_chksum.c":
+            env.collect(":build:ccflags", "-Wno-strict-aliasing", operations=files)
+
+    env.collect(":build:path.include", "modm/ext/lwip")

@@ -6,8 +6,8 @@
 extern "C" {
 #endif
 
-err_t ethernetif_init(struct netif *netif);
-void ethernetif_input(struct netif *netif);
+err_t modm_lwip_netif_init(struct netif *netif);
+void modm_lwip_netif_input(struct netif *netif);
 
 #ifdef __cplusplus
 }

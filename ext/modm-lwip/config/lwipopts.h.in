@@ -1,13 +1,19 @@
 /*
- * Minimal lwIP configuration for bare-metal static IPv4 ping, UDP, and TCP
- * echo testing.
+ * Minimal lwIP configuration for the modm no-OS lwIP port.
+ *
+ * The STM32 Ethernet backend requires hardware TX checksum insertion. lwIP TX
+ * checksum generation for IPv4, UDP, TCP, and ICMP is therefore forced off
+ * below. RX checksum validation remains software-enabled by default.
  */
 
 #pragma once
 
-#include "ethernet_config.h"
-
 #include <stdint.h>
+
+/* A header file that overwrites with local project settings. */
+#if __has_include(<lwipopts_local.h>)
+#	include <lwipopts_local.h>
+#endif
 
 #define NO_SYS                          1
 #define SYS_LIGHTWEIGHT_PROT            0
@@ -42,6 +48,7 @@
 
 #define PBUF_POOL_SIZE                  8
 #define PBUF_POOL_BUFSIZE               1536
+#define LWIP_SUPPORT_CUSTOM_PBUF        1
 #define LWIP_NETIF_TX_SINGLE_PBUF       0
 
 #define TCP_MSS                         1460
@@ -56,23 +63,38 @@
 #define LWIP_BROADCAST_PING             0
 #define LWIP_MULTICAST_PING             0
 
-#if ETH_TX_CHECKSUM_OFFLOAD_ENABLE
+#undef CHECKSUM_GEN_IP
+#undef CHECKSUM_GEN_UDP
+#undef CHECKSUM_GEN_TCP
+#undef CHECKSUM_GEN_ICMP
 #define CHECKSUM_GEN_IP                 0
 #define CHECKSUM_GEN_UDP                0
 #define CHECKSUM_GEN_TCP                0
 #define CHECKSUM_GEN_ICMP               0
-#else
-#define CHECKSUM_GEN_IP                 1
-#define CHECKSUM_GEN_UDP                1
-#define CHECKSUM_GEN_TCP                1
-#define CHECKSUM_GEN_ICMP               1
-#endif
+
+#ifndef CHECKSUM_CHECK_IP
 #define CHECKSUM_CHECK_IP               1
+#endif
+#ifndef CHECKSUM_CHECK_UDP
 #define CHECKSUM_CHECK_UDP              1
+#endif
+#ifndef CHECKSUM_CHECK_TCP
 #define CHECKSUM_CHECK_TCP              1
+#endif
+#ifndef CHECKSUM_CHECK_ICMP
 #define CHECKSUM_CHECK_ICMP             1
+#endif
 
 #define LWIP_PLATFORM_DIAG(x)           do { } while (0)
+#define LWIP_PLATFORM_ASSERT(x)         modm_lwip_assert((x), __FILE__, __LINE__)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+void modm_lwip_assert(char const *message, char const *file, int line);
+#ifdef __cplusplus
+}
+#endif
 
 #ifdef __cplusplus
 extern "C" {

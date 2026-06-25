@@ -27,6 +27,7 @@ FILL_MODE_NAMES = {value: key for key, value in FILL_MODES.items()}
 HEADER = struct.Struct("<IHHIII")
 RX_STATS_PACKET = struct.Struct("<IHHIIIIIIIIII")
 TX_START_PACKET = struct.Struct("<IHHIIIIIIII")
+TX_DONE_FILL_PACKET = struct.Struct("<IHHIII" + "I" * 13)
 TX_DONE_DIAG_PACKET = struct.Struct("<IHHIII" + "I" * 30)
 TX_DONE_DIAG_FILL_PACKET = struct.Struct("<IHHIII" + "I" * 31)
 TX_TIMING_COUNTER = "QIII"
@@ -73,6 +74,8 @@ def validate_header(data, expected_type=None):
 
 
 def unpack_tx_done(data):
+    if len(data) == TX_DONE_FILL_PACKET.size:
+        return TX_DONE_FILL_PACKET.unpack(data) + (None,) * 18 + (None,) * (2 + TX_TIMING_COUNTER_COUNT * 4)
     if len(data) == TX_DONE_TIMING_FILL_PACKET.size:
         return TX_DONE_TIMING_FILL_PACKET.unpack(data)
     if len(data) == TX_DONE_TIMING_PACKET.size:
@@ -124,6 +127,8 @@ def rx_mode(args):
     addr = (args.ip, args.port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(args.timeout)
+
+    sock.sendto(pack_header(RESET, 0, HEADER_SIZE), addr)
 
     start = time.perf_counter()
     for seq in range(args.count):

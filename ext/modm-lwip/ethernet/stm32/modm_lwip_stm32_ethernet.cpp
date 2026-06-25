@@ -9,9 +9,7 @@
  */
 // ----------------------------------------------------------------------------
 
-#include "ethernet_dma.hpp"
-#include "eth_bench.h"
-#include "ethernet_dma_diag.h"
+#include "modm_lwip_stm32_ethernet.hpp"
 
 #include <modm/board.hpp>
 #include <modm/driver/ethernet/lan8742a.hpp>
@@ -55,8 +53,7 @@ struct DmaDescriptor
 
 constexpr uint32_t RxDescriptorTableAddress { EthernetRamBase };
 constexpr std::size_t DescriptorCount { 32 };
-constexpr std::size_t RxBufferSize { ethernet_dma::MaxFrameSize };
-constexpr std::size_t TxBufferSize { ethernet_dma::MaxFrameSize };
+constexpr std::size_t RxBufferSize { modm::lwip::ethernet::MaxFrameSize };
 constexpr std::size_t LwipHeapSize { 10 * 1024 };
 
 constexpr std::size_t DmaDescriptorSize { sizeof(DmaDescriptor) };
@@ -64,10 +61,8 @@ constexpr uint32_t TxDescriptorTableAddress {
 		RxDescriptorTableAddress + DescriptorCount * DmaDescriptorSize };
 constexpr uint32_t RxBufferAddress {
 		TxDescriptorTableAddress + DescriptorCount * DmaDescriptorSize };
-constexpr uint32_t TxBufferAddress {
-		RxBufferAddress + DescriptorCount * RxBufferSize };
 constexpr uint32_t LwipHeapAddress {
-		TxBufferAddress + DescriptorCount * TxBufferSize };
+		RxBufferAddress + DescriptorCount * RxBufferSize };
 
 constexpr uint32_t TxDesc3Own { modm::Bit31 };
 constexpr uint32_t TxDesc3Fd { modm::Bit29 };
@@ -88,17 +83,28 @@ static_assert(RxDescriptorTableAddress >= EthernetRamBase);
 static_assert((RxDescriptorTableAddress % 32) == 0);
 static_assert((TxDescriptorTableAddress % 32) == 0);
 static_assert((RxBufferAddress % 32) == 0);
-static_assert((TxBufferAddress % 32) == 0);
 static_assert((LwipHeapAddress % 32) == 0);
 static_assert(LwipHeapAddress + LwipHeapSize <= EthernetRamBase + EthernetRamSizeBytes);
 
 auto * const RxDescriptors = reinterpret_cast<DmaDescriptor *>(RxDescriptorTableAddress);
 auto * const TxDescriptors = reinterpret_cast<DmaDescriptor *>(TxDescriptorTableAddress);
-auto * const RxBuffers = reinterpret_cast<uint8_t *>(RxBufferAddress);
-auto * const TxBuffers = reinterpret_cast<uint8_t *>(TxBufferAddress);
 std::size_t RxDescriptorIndex { 0 };
 std::size_t TxDescriptorIndex { 0 };
-ethernet_dma::Diagnostics DmaDiagnostics {};
+
+enum class RxDescriptorState : uint8_t
+{
+	DmaOwned,
+	ReadyForLwip,
+	LwipOwned,
+};
+
+struct RxPbufContext
+{
+	struct pbuf_custom custom;
+	std::size_t descriptorIndex;
+	uint16_t length;
+	RxDescriptorState state;
+};
 
 struct TxDescriptorContext
 {
@@ -107,13 +113,68 @@ struct TxDescriptorContext
 	bool isFrameEnd;
 };
 
+modm::lwip::ethernet::Diagnostics EthernetDiagnostics {};
+uint8_t LocalMac[6] {
+	modm::lwip::ethernet::DefaultMac[0],
+	modm::lwip::ethernet::DefaultMac[1],
+	modm::lwip::ethernet::DefaultMac[2],
+	modm::lwip::ethernet::DefaultMac[3],
+	modm::lwip::ethernet::DefaultMac[4],
+	modm::lwip::ethernet::DefaultMac[5],
+};
+RxPbufContext RxContexts[DescriptorCount] {};
 TxDescriptorContext TxContexts[DescriptorCount] {};
+
+std::size_t RxLwipOwnedDescriptorCount { 0 };
 
 void
 clearEthernetRam()
 {
 	std::memset(reinterpret_cast<void *>(RxDescriptorTableAddress), 0, EthernetRamSizeBytes);
+	EthernetDiagnostics = {};
+	EthernetDiagnostics.rxMinFreeDescriptors = DescriptorCount;
+	RxLwipOwnedDescriptorCount = 0;
 	__DMB();
+}
+
+std::size_t
+countFreeRxDescriptors()
+{
+	return DescriptorCount - RxLwipOwnedDescriptorCount;
+}
+
+void
+updateRxFreeDescriptorLowWatermark()
+{
+	const std::size_t freeDescriptors = countFreeRxDescriptors();
+	if (freeDescriptors < EthernetDiagnostics.rxMinFreeDescriptors) {
+		EthernetDiagnostics.rxMinFreeDescriptors = freeDescriptors;
+	}
+}
+
+void releaseRxDescriptor(std::size_t index);
+
+void
+freeRxCustomPbuf(struct pbuf *p)
+{
+	auto *custom = reinterpret_cast<struct pbuf_custom *>(p);
+	auto *context = reinterpret_cast<RxPbufContext *>(custom);
+	const std::size_t index = context->descriptorIndex;
+
+	EthernetDiagnostics.rxCustomFreeCallbacks++;
+	if (index >= DescriptorCount || context->state != RxDescriptorState::LwipOwned) {
+		EthernetDiagnostics.rxErrors++;
+		return;
+	}
+
+	context->length = 0;
+	context->state = RxDescriptorState::DmaOwned;
+	if (RxLwipOwnedDescriptorCount > 0) {
+		RxLwipOwnedDescriptorCount--;
+	}
+	EthernetDiagnostics.rxLwipOwnedDescriptors = static_cast<uint32_t>(RxLwipOwnedDescriptorCount);
+
+	releaseRxDescriptor(index);
 }
 
 void
@@ -126,6 +187,14 @@ initializeRxDescriptors()
 	for (std::size_t index = 0; index < DescriptorCount; ++index) {
 		const uint32_t bufferAddress = RxBufferAddress + index * RxBufferSize;
 		auto &descriptor = RxDescriptors[index];
+		auto &context = RxContexts[index];
+
+		context = {};
+		context.custom.custom_free_function = freeRxCustomPbuf;
+		context.descriptorIndex = index;
+		context.length = 0;
+		context.state = RxDescriptorState::DmaOwned;
+
 		descriptor.DESC0 = bufferAddress;
 		descriptor.DESC1 = 0;
 		descriptor.DESC2 = 0;
@@ -145,7 +214,6 @@ initializeTxDescriptors()
 {
 	for (std::size_t index = 0; index < DescriptorCount; ++index) {
 		TxDescriptors[index] = {};
-		TxDescriptors[index].BackupAddr0 = TxBufferAddress + index * TxBufferSize;
 		TxContexts[index] = {};
 	}
 
@@ -155,8 +223,9 @@ initializeTxDescriptors()
 }
 
 void
-releaseRxDescriptor(DmaDescriptor &descriptor)
+releaseRxDescriptor(std::size_t index)
 {
+	auto &descriptor = RxDescriptors[index];
 	const uint32_t bufferAddress = descriptor.BackupAddr0;
 	descriptor.DESC0 = bufferAddress;
 	descriptor.DESC1 = 0;
@@ -165,6 +234,8 @@ releaseRxDescriptor(DmaDescriptor &descriptor)
 	descriptor.DESC3 = RxDesc3Own | RxDesc3Buf1Valid;
 	__DMB();
 	ETH->DMACRDTPR = uint32_t(&descriptor);
+	EthernetDiagnostics.rxDescriptorsReturnedToDma++;
+	updateRxFreeDescriptorLowWatermark();
 }
 
 void
@@ -189,35 +260,13 @@ countFreeTxDescriptors()
 		if (isTxDescriptorFree(index))
 			count++;
 	}
-	if (DmaDiagnostics.txMinFreeDescriptors == 0 ||
-			count < DmaDiagnostics.txMinFreeDescriptors) {
-		DmaDiagnostics.txMinFreeDescriptors = count;
-	}
-	if (count == 0)
-		DmaDiagnostics.txRingFull++;
 	return count;
-}
-
-void
-updateTxDescriptorUseStats()
-{
-	std::size_t inUse = 0;
-	for (const auto &context : TxContexts) {
-		if (context.inUse)
-			inUse++;
-	}
-
-	DmaDiagnostics.txDescriptorsInUse = inUse;
-	if (inUse > DmaDiagnostics.txMaxDescriptorsInUse)
-		DmaDiagnostics.txMaxDescriptorsInUse = inUse;
 }
 
 void
 cleanTxPayloadCache(const void *payload, std::size_t length)
 {
-	BENCH_TIME_BEGIN(cache_clean_start);
 	if (payload == nullptr || length == 0) {
-		BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
 		return;
 	}
 
@@ -229,12 +278,10 @@ cleanTxPayloadCache(const void *payload, std::size_t length)
 	// The Ethernet/lwIP MPU region is configured as non-cacheable, so pbufs
 	// allocated from the lwIP heap do not need cache cleaning before TX DMA.
 	if (inEthernetLwipRegion) {
-		BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
 		return;
 	}
 
 	if ((SCB->CCR & SCB_CCR_DC_Msk) == 0) {
-		BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
 		return;
 	}
 
@@ -243,16 +290,47 @@ cleanTxPayloadCache(const void *payload, std::size_t length)
 	const uintptr_t end = (address + length + CacheLineSize - 1) & ~(CacheLineSize - 1);
 	SCB_CleanDCache_by_Addr(reinterpret_cast<uint32_t *>(start),
 			static_cast<int32_t>(end - start));
-	BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
+}
+
+void
+invalidateRxPayloadCache(const void *payload, std::size_t length)
+{
+	if (payload == nullptr || length == 0) {
+		return;
+	}
+
+	const auto address = reinterpret_cast<uintptr_t>(payload);
+	const bool inEthernetLwipRegion =
+			address >= EthernetRamBase &&
+			address + length <= EthernetRamBase + EthernetRamSizeBytes;
+
+	// The Ethernet/lwIP MPU region is configured as non-cacheable. Keep this
+	// hook here so cacheable external RX buffers can be supported without
+	// changing the RX descriptor ownership path.
+	if (inEthernetLwipRegion) {
+		return;
+	}
+
+	if ((SCB->CCR & SCB_CCR_DC_Msk) == 0) {
+		return;
+	}
+
+	constexpr uintptr_t CacheLineSize { 32 };
+	const uintptr_t start = address & ~(CacheLineSize - 1);
+	const uintptr_t end = (address + length + CacheLineSize - 1) & ~(CacheLineSize - 1);
+	SCB_InvalidateDCache_by_Addr(reinterpret_cast<uint32_t *>(start),
+			static_cast<int32_t>(end - start));
+	EthernetDiagnostics.rxCacheInvalidateCalls++;
+	EthernetDiagnostics.rxCacheInvalidateBytes += static_cast<uint32_t>(end - start);
 }
 
 }
 
-namespace ethernet_dma
+namespace modm::lwip::ethernet
 {
 
 void
-configureMpuRegion()
+configureMemory()
 {
 	constexpr uint32_t regionNumber { 7 };
 	constexpr uint32_t size128k { 16 };
@@ -302,51 +380,16 @@ initialize()
 	EMAC::configureMac(autoNegotiationFailed);
 	EMAC::start();
 	disableEthernetInterrupts();
-	DmaDiagnostics.linkUp = linkIsUp();
 }
 
-bool
-transmitFrame(const uint8_t *frame, std::size_t length)
+void
+setMacAddress(const uint8_t *address)
 {
-	reclaimTxDescriptors();
-
-	if (frame == nullptr || length == 0 || length > TxBufferSize) {
-		DmaDiagnostics.txErrors++;
-		return false;
+	if (address == nullptr) {
+		return;
 	}
 
-	auto &descriptor = TxDescriptors[TxDescriptorIndex];
-	if (!isTxDescriptorFree(TxDescriptorIndex)) {
-		DmaDiagnostics.txBusy++;
-		DmaDiagnostics.txDescriptorStarvation++;
-		return false;
-	}
-
-	uint8_t *buffer = TxBuffers + TxDescriptorIndex * TxBufferSize;
-	const std::size_t frameLength = length < 60 ? 60 : length;
-	std::memcpy(buffer, frame, length);
-	if (frameLength > length)
-		std::memset(buffer + length, 0, frameLength - length);
-
-	descriptor.DESC0 = uint32_t(buffer);
-	descriptor.DESC1 = 0;
-	descriptor.DESC2 = uint32_t(frameLength);
-	descriptor.DESC3 = TxDesc3Fd | TxDesc3Ld | (uint32_t(frameLength) & TxDesc3FrameLengthMask);
-#if ETH_TX_CHECKSUM_OFFLOAD_ENABLE
-	descriptor.DESC3 |= TxDesc3ChecksumFull;
-#endif
-
-	__DMB();
-	descriptor.DESC3 |= TxDesc3Own;
-	__DSB();
-
-	TxDescriptorIndex = (TxDescriptorIndex + 1) % DescriptorCount;
-	ETH->DMACTDTPR = uint32_t(&TxDescriptors[TxDescriptorIndex]);
-	DmaDiagnostics.txFrames++;
-	DmaDiagnostics.txCopyFrames++;
-	DmaDiagnostics.txCopyBytes += frameLength;
-
-	return true;
+	std::memcpy(LocalMac, address, sizeof(LocalMac));
 }
 
 bool
@@ -355,7 +398,8 @@ transmitPbuf(struct pbuf *p)
 	reclaimTxDescriptors();
 
 	if (p == nullptr || p->tot_len == 0) {
-		DmaDiagnostics.txErrors++;
+		EthernetDiagnostics.txInvalidPbufs++;
+		EthernetDiagnostics.txErrors++;
 		return false;
 	}
 
@@ -367,37 +411,35 @@ transmitPbuf(struct pbuf *p)
 	}
 
 	if (descriptorCount == 0 || p->tot_len > MaxFrameSize) {
-		DmaDiagnostics.txErrors++;
+		EthernetDiagnostics.txInvalidPbufs++;
+		EthernetDiagnostics.txErrors++;
 		return false;
 	}
 
-	if (descriptorCount > DmaDiagnostics.txMaxPbufChainLength)
-		DmaDiagnostics.txMaxPbufChainLength = descriptorCount;
-	if (descriptorCount > DmaDiagnostics.txMaxDescriptorsPerFrame)
-		DmaDiagnostics.txMaxDescriptorsPerFrame = descriptorCount;
 
 	if (descriptorCount > DescriptorCount) {
-		DmaDiagnostics.txPbufChainTooLong++;
+		EthernetDiagnostics.txPbufChainTooLong++;
+		EthernetDiagnostics.txErrors++;
 		return false;
 	}
 
 	if (countFreeTxDescriptors() < descriptorCount) {
-		DmaDiagnostics.txDescriptorStarvation++;
+		EthernetDiagnostics.txDescriptorStarvation++;
+		EthernetDiagnostics.txErrors++;
 		return false;
 	}
 
 	for (std::size_t offset = 0; offset < descriptorCount; ++offset) {
 		const std::size_t index = (TxDescriptorIndex + offset) % DescriptorCount;
 		if (!isTxDescriptorFree(index)) {
-			DmaDiagnostics.txDescriptorStarvation++;
+			EthernetDiagnostics.txDescriptorStarvation++;
+			EthernetDiagnostics.txErrors++;
 			return false;
 		}
 	}
 
 	pbuf_ref(p);
-	DmaDiagnostics.txPbufRefsAcquired++;
-
-	BENCH_TIME_BEGIN(descriptor_setup_start);
+	EthernetDiagnostics.txPbufRefsAcquired++;
 	std::size_t descriptorOffset = 0;
 	for (const struct pbuf *q = p; q != nullptr; q = q->next) {
 		if (q->len == 0)
@@ -417,11 +459,8 @@ transmitPbuf(struct pbuf *p)
 		descriptor.DESC3 =
 				(first ? TxDesc3Fd : 0) |
 				(last ? TxDesc3Ld : 0) |
-				(first ? (uint32_t(p->tot_len) & TxDesc3FrameLengthMask) : 0)
-#if ETH_TX_CHECKSUM_OFFLOAD_ENABLE
-				| (first ? TxDesc3ChecksumFull : 0)
-#endif
-				;
+				(first ? (uint32_t(p->tot_len) & TxDesc3FrameLengthMask) : 0) |
+				(first ? TxDesc3ChecksumFull : 0);
 
 		context.frame = last ? p : nullptr;
 		context.inUse = true;
@@ -438,45 +477,88 @@ transmitPbuf(struct pbuf *p)
 
 	TxDescriptorIndex = (TxDescriptorIndex + descriptorCount) % DescriptorCount;
 	ETH->DMACTDTPR = uint32_t(&TxDescriptors[TxDescriptorIndex]);
-
-	DmaDiagnostics.txFrames++;
-	DmaDiagnostics.txZeroCopyFrames++;
-	DmaDiagnostics.txZeroCopyBytes += p->tot_len;
-	updateTxDescriptorUseStats();
-	BENCH_TIME_END(eth_bench_eth_descriptor_setup, descriptor_setup_start);
+	EthernetDiagnostics.txFrames++;
 	return true;
 }
 
-bool
-receiveFrame(uint8_t *frame, std::size_t capacity, std::size_t &length)
+struct pbuf *
+receivePbuf()
 {
 	for (std::size_t checked = 0; checked < DescriptorCount; ++checked) {
+		const std::size_t index = RxDescriptorIndex;
 		auto &descriptor = RxDescriptors[RxDescriptorIndex];
 		const uint32_t status = descriptor.DESC3;
-		if ((status & RxDesc3Own) != 0)
-			return false;
+		if ((status & RxDesc3Own) != 0) {
+			if (RxLwipOwnedDescriptorCount == DescriptorCount) {
+				EthernetDiagnostics.rxDescriptorStarvation++;
+			}
+			return nullptr;
+		}
 
 		RxDescriptorIndex = (RxDescriptorIndex + 1) % DescriptorCount;
 		const std::size_t frameLength = status & RxDesc3FrameLengthMask;
 		const bool wholeFrame = (status & (RxDesc3Fd | RxDesc3Ld)) == (RxDesc3Fd | RxDesc3Ld);
 		const bool hasError = (status & RxDesc3ErrorSummary) != 0;
+		auto &context = RxContexts[index];
 
-		if (not wholeFrame || hasError || frameLength == 0 || frameLength > capacity) {
-			if (hasError)
-				DmaDiagnostics.rxErrors++;
-			DmaDiagnostics.droppedFrames++;
-			releaseRxDescriptor(descriptor);
+		if (context.state != RxDescriptorState::DmaOwned) {
+			EthernetDiagnostics.rxErrors++;
+			EthernetDiagnostics.rxDescriptorStarvation++;
+			return nullptr;
+		}
+
+		if (not wholeFrame || hasError || frameLength == 0 || frameLength > RxBufferSize) {
+			if (hasError) {
+				EthernetDiagnostics.rxDmaErrorFrames++;
+			}
+			EthernetDiagnostics.rxInvalidFrames++;
+			EthernetDiagnostics.rxErrors++;
+			releaseRxDescriptor(index);
 			continue;
 		}
 
-		std::memcpy(frame, reinterpret_cast<const void *>(descriptor.BackupAddr0), frameLength);
-		length = frameLength;
-		releaseRxDescriptor(descriptor);
-		DmaDiagnostics.rxFrames++;
-		return true;
+		context.length = static_cast<uint16_t>(frameLength);
+		context.state = RxDescriptorState::ReadyForLwip;
+		context.custom.custom_free_function = freeRxCustomPbuf;
+
+		auto * const payload = reinterpret_cast<void *>(descriptor.BackupAddr0);
+		invalidateRxPayloadCache(payload, frameLength);
+
+		struct pbuf *p = pbuf_alloced_custom(PBUF_RAW,
+				static_cast<u16_t>(frameLength),
+				PBUF_REF,
+				&context.custom,
+				payload,
+				RxBufferSize);
+		if (p == nullptr) {
+			context.length = 0;
+			context.state = RxDescriptorState::DmaOwned;
+			EthernetDiagnostics.rxCustomPbufAllocationFailures++;
+			EthernetDiagnostics.rxErrors++;
+			releaseRxDescriptor(index);
+			continue;
+		}
+
+		context.state = RxDescriptorState::LwipOwned;
+		RxLwipOwnedDescriptorCount++;
+		EthernetDiagnostics.rxLwipOwnedDescriptors = static_cast<uint32_t>(RxLwipOwnedDescriptorCount);
+		if (RxLwipOwnedDescriptorCount > EthernetDiagnostics.rxMaxLwipOwnedDescriptors) {
+			EthernetDiagnostics.rxMaxLwipOwnedDescriptors =
+					static_cast<uint32_t>(RxLwipOwnedDescriptorCount);
+		}
+		updateRxFreeDescriptorLowWatermark();
+		EthernetDiagnostics.rxFrames++;
+		return p;
 	}
 
-	return false;
+	return nullptr;
+}
+
+void
+recordRxInputError()
+{
+	EthernetDiagnostics.rxInputErrors++;
+	EthernetDiagnostics.rxErrors++;
 }
 
 bool
@@ -485,24 +567,26 @@ linkIsUp()
 	return EMAC::phyReadLinkStatus() == modm::platform::eth::LinkStatus::Up;
 }
 
+const uint8_t *
+macAddress()
+{
+	return LocalMac;
+}
+
 void
-pollDmaStatus()
+pollStatus()
 {
 	reclaimTxDescriptors();
 
 	const uint32_t status = ETH->DMACSR;
 	if (status != 0) {
-		MODM_LOG_INFO << "DMACSR=0x" << modm::hex << status << modm::ascii << modm::endl;
 		ETH->DMACSR = status;
 	}
-	DmaDiagnostics.linkUp = linkIsUp();
 }
 
 void
 reclaimTxDescriptors()
 {
-	BENCH_TIME_BEGIN(reclaim_start);
-	DmaDiagnostics.txReclaimCalls++;
 
 	for (std::size_t index = 0; index < DescriptorCount; ++index) {
 		auto &context = TxContexts[index];
@@ -512,74 +596,21 @@ reclaimTxDescriptors()
 		if ((TxDescriptors[index].DESC3 & TxDesc3Own) != 0)
 			continue;
 
-		DmaDiagnostics.txCompletedDescriptors++;
 		if (context.isFrameEnd) {
-			DmaDiagnostics.txCompletedFrames++;
 			if (context.frame != nullptr) {
 				pbuf_free(context.frame);
-				DmaDiagnostics.txPbufsReleased++;
+				EthernetDiagnostics.txPbufsReleased++;
 			}
 		}
 
 		context = {};
 	}
-
-	updateTxDescriptorUseStats();
-	BENCH_TIME_END(eth_bench_eth_reclaim, reclaim_start);
-}
-
-void
-printMemoryLayout()
-{
-	MODM_LOG_INFO << "ETH/lwIP memory: rxdesc=0x" << modm::hex << RxDescriptorTableAddress
-			<< " txdesc=0x" << TxDescriptorTableAddress
-			<< " rxbuf=0x" << RxBufferAddress
-			<< " txbuf=0x" << TxBufferAddress
-			<< " lwip_heap=0x" << LwipHeapAddress
-			<< modm::ascii
-			<< " descriptors=" << uint32_t(DescriptorCount)
-			<< " rxbufsize=" << uint32_t(RxBufferSize)
-			<< " txbufsize=" << uint32_t(TxBufferSize)
-			<< " heap=" << uint32_t(LwipHeapSize)
-			<< modm::endl;
 }
 
 const Diagnostics &
 diagnostics()
 {
-	return DmaDiagnostics;
+	return EthernetDiagnostics;
 }
 
-}
-
-extern "C" void
-ethernet_dma_get_diagnostics(EthernetDmaDiagnosticsSnapshot *snapshot)
-{
-	if (snapshot == nullptr)
-		return;
-
-	snapshot->tx_zero_copy_frames = DmaDiagnostics.txZeroCopyFrames;
-	snapshot->tx_zero_copy_bytes = DmaDiagnostics.txZeroCopyBytes;
-	snapshot->tx_copy_frames = DmaDiagnostics.txCopyFrames;
-	snapshot->tx_copy_bytes = DmaDiagnostics.txCopyBytes;
-	snapshot->tx_descriptor_starvation = DmaDiagnostics.txDescriptorStarvation;
-	snapshot->tx_ring_full = DmaDiagnostics.txRingFull;
-	snapshot->tx_reclaim_calls = DmaDiagnostics.txReclaimCalls;
-	snapshot->tx_completed_descriptors = DmaDiagnostics.txCompletedDescriptors;
-	snapshot->tx_completed_frames = DmaDiagnostics.txCompletedFrames;
-	snapshot->tx_pbuf_refs_acquired = DmaDiagnostics.txPbufRefsAcquired;
-	snapshot->tx_pbufs_released = DmaDiagnostics.txPbufsReleased;
-	snapshot->tx_descriptors_in_use = DmaDiagnostics.txDescriptorsInUse;
-	snapshot->tx_max_descriptors_in_use = DmaDiagnostics.txMaxDescriptorsInUse;
-	snapshot->tx_min_free_descriptors = DmaDiagnostics.txMinFreeDescriptors;
-	snapshot->tx_max_pbuf_chain_length = DmaDiagnostics.txMaxPbufChainLength;
-	snapshot->tx_max_descriptors_per_frame = DmaDiagnostics.txMaxDescriptorsPerFrame;
-	snapshot->tx_errors = DmaDiagnostics.txErrors;
-	snapshot->tx_busy = DmaDiagnostics.txBusy;
-}
-
-extern "C" void
-ethernet_dma_reclaim_tx_descriptors(void)
-{
-	ethernet_dma::reclaimTxDescriptors();
 }

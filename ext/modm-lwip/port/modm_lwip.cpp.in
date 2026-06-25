@@ -1,0 +1,117 @@
+#include "modm_lwip.hpp"
+
+#include "modm_lwip_ethernet.hpp"
+#include "modm_lwip_netif.hpp"
+
+#include "lwip/init.h"
+#include "lwip/netif.h"
+#include "lwip/timeouts.h"
+#include "netif/ethernet.h"
+
+namespace
+{
+struct netif Netif;
+bool Initialized { false };
+bool LinkUp { false };
+}
+
+namespace modm::lwip
+{
+
+bool
+Ethernet::initialize(const EthernetConfig &config)
+{
+	if (Initialized) {
+		return true;
+	}
+
+	ethernet::configureMemory();
+	ethernet::setMacAddress(config.mac.octets);
+	ethernet::initialize();
+	lwip_init();
+
+	ip4_addr_t ip;
+	ip4_addr_t netmask;
+	ip4_addr_t gateway;
+
+	IP4_ADDR(&ip, config.address.octets[0], config.address.octets[1],
+			config.address.octets[2], config.address.octets[3]);
+	IP4_ADDR(&netmask, config.netmask.octets[0], config.netmask.octets[1],
+			config.netmask.octets[2], config.netmask.octets[3]);
+	IP4_ADDR(&gateway, config.gateway.octets[0], config.gateway.octets[1],
+			config.gateway.octets[2], config.gateway.octets[3]);
+
+	if (netif_add(&Netif, &ip, &netmask, &gateway, nullptr,
+			modm_lwip_netif_init, ethernet_input) == nullptr) {
+		return false;
+	}
+	netif_set_default(&Netif);
+	netif_set_up(&Netif);
+
+	Initialized = true;
+	pollStatus();
+	return true;
+}
+
+void
+Ethernet::poll()
+{
+	if (!Initialized) {
+		return;
+	}
+
+	ethernet::reclaimTxDescriptors();
+	modm_lwip_netif_input(&Netif);
+	sys_check_timeouts();
+}
+
+void
+Ethernet::pollStatus()
+{
+	if (!Initialized) {
+		return;
+	}
+
+	ethernet::pollStatus();
+
+	if (ethernet::linkIsUp()) {
+		netif_set_link_up(&Netif);
+		LinkUp = true;
+	}
+	else {
+		netif_set_link_down(&Netif);
+		LinkUp = false;
+	}
+}
+
+bool
+Ethernet::isInitialized()
+{
+	return Initialized;
+}
+
+bool
+Ethernet::isLinkUp()
+{
+	return Initialized && LinkUp;
+}
+
+struct netif *
+Ethernet::netif()
+{
+	return Initialized ? &Netif : nullptr;
+}
+
+void
+initialize(const Config &config)
+{
+	(void) Ethernet::initialize(config);
+}
+
+void
+poll()
+{
+	Ethernet::poll();
+}
+
+}

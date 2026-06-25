@@ -1,0 +1,8 @@
+#include <modm/architecture/interface/clock.hpp>
+#include <cstdint>
+
+extern "C" uint32_t
+sys_now()
+{
+	return modm::Clock::now().time_since_epoch().count();
+}

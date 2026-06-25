@@ -1,7 +1,7 @@
 <library>
   <extends>modm:nucleo-h743zi</extends>
   <options>
-    <option name="modm:build:build.path">../../../build/nucleo_h743zi/ethernet_raw_dma</option>
+    <option name="modm:build:build.path">../../../build/nucleo_h743zi/lwip_speedtest</option>
   </options>
   <modules>
     <module>modm:architecture:memory</module>

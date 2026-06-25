@@ -1,0 +1,9 @@
+#include <modm/architecture/interface/assert.hpp>
+
+extern "C" void
+modm_lwip_assert(char const *message, char const *file, int lineNumber)
+{
+	(void) message;
+	(void) lineNumber;
+	modm_assert(false, "lwip", message, file);
+}

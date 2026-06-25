@@ -1,0 +1,17 @@
+<library>
+  <extends>modm:nucleo-h743zi</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/nucleo_h743zi/lwip_aeat_stream</option>
+  </options>
+  <modules>
+    <module>modm:architecture:memory</module>
+    <module>modm:build:scons</module>
+    <module>modm:driver:aeat9922</module>
+    <module>modm:driver:lan8742a</module>
+    <module>modm:modm-lwip:ethernet:stm32</module>
+    <module>modm:platform:eth</module>
+    <module>modm:platform:spi:3</module>
+    <module>modm:platform:timer:2</module>
+    <module>modm:processing:timer</module>
+  </modules>
+</library>

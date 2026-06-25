@@ -11,8 +11,12 @@
 
 #pragma once
 
+#include "ethernet_config.h"
+
 #include <cstddef>
 #include <cstdint>
+
+struct pbuf;
 
 namespace ethernet_dma
 {
@@ -28,6 +32,23 @@ struct Diagnostics
 	uint32_t txBusy;
 	uint32_t txErrors;
 	uint32_t droppedFrames;
+	uint32_t txZeroCopyFrames;
+	uint32_t txZeroCopyBytes;
+	uint32_t txCopyFrames;
+	uint32_t txCopyBytes;
+	uint32_t txDescriptorStarvation;
+	uint32_t txRingFull;
+	uint32_t txReclaimCalls;
+	uint32_t txCompletedDescriptors;
+	uint32_t txPbufChainTooLong;
+	uint32_t txCompletedFrames;
+	uint32_t txPbufRefsAcquired;
+	uint32_t txPbufsReleased;
+	uint32_t txDescriptorsInUse;
+	uint32_t txMaxDescriptorsInUse;
+	uint32_t txMinFreeDescriptors;
+	uint32_t txMaxPbufChainLength;
+	uint32_t txMaxDescriptorsPerFrame;
 	bool linkUp;
 };
 
@@ -35,8 +56,10 @@ void configureMpuRegion();
 void initialize();
 void pollDmaStatus();
 void printMemoryLayout();
+void reclaimTxDescriptors();
 
 bool transmitFrame(const uint8_t *frame, std::size_t length);
+bool transmitPbuf(struct pbuf *p);
 bool receiveFrame(uint8_t *frame, std::size_t capacity, std::size_t &length);
 bool linkIsUp();
 

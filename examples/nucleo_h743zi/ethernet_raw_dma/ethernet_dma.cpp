@@ -10,9 +10,13 @@
 // ----------------------------------------------------------------------------
 
 #include "ethernet_dma.hpp"
+#include "eth_bench.h"
+#include "ethernet_dma_diag.h"
 
 #include <modm/board.hpp>
 #include <modm/driver/ethernet/lan8742a.hpp>
+
+#include <lwip/pbuf.h>
 
 #include <cstring>
 
@@ -36,8 +40,8 @@ namespace Ethernet
 	using Port = EMAC;
 }
 
-constexpr uint32_t EthernetRamBase { 0x3004'0000 };
-constexpr uint32_t EthernetRamSizeBytes { 32 * 1024 };
+constexpr uint32_t EthernetRamBase { 0x3002'0000 };
+constexpr uint32_t EthernetRamSizeBytes { 128 * 1024 };
 
 struct DmaDescriptor
 {
@@ -50,7 +54,7 @@ struct DmaDescriptor
 };
 
 constexpr uint32_t RxDescriptorTableAddress { EthernetRamBase };
-constexpr std::size_t DescriptorCount { 4 };
+constexpr std::size_t DescriptorCount { 32 };
 constexpr std::size_t RxBufferSize { ethernet_dma::MaxFrameSize };
 constexpr std::size_t TxBufferSize { ethernet_dma::MaxFrameSize };
 constexpr std::size_t LwipHeapSize { 10 * 1024 };
@@ -68,6 +72,7 @@ constexpr uint32_t LwipHeapAddress {
 constexpr uint32_t TxDesc3Own { modm::Bit31 };
 constexpr uint32_t TxDesc3Fd { modm::Bit29 };
 constexpr uint32_t TxDesc3Ld { modm::Bit28 };
+constexpr uint32_t TxDesc3ChecksumFull { modm::Bit17 | modm::Bit16 };
 constexpr uint32_t TxDesc3FrameLengthMask { 0x0000'7fff };
 
 constexpr uint32_t RxDesc3Own { modm::Bit31 };
@@ -94,6 +99,15 @@ auto * const TxBuffers = reinterpret_cast<uint8_t *>(TxBufferAddress);
 std::size_t RxDescriptorIndex { 0 };
 std::size_t TxDescriptorIndex { 0 };
 ethernet_dma::Diagnostics DmaDiagnostics {};
+
+struct TxDescriptorContext
+{
+	struct pbuf *frame;
+	bool inUse;
+	bool isFrameEnd;
+};
+
+TxDescriptorContext TxContexts[DescriptorCount] {};
 
 void
 clearEthernetRam()
@@ -132,6 +146,7 @@ initializeTxDescriptors()
 	for (std::size_t index = 0; index < DescriptorCount; ++index) {
 		TxDescriptors[index] = {};
 		TxDescriptors[index].BackupAddr0 = TxBufferAddress + index * TxBufferSize;
+		TxContexts[index] = {};
 	}
 
 	EMAC::setDmaTxDescriptorTable(TxDescriptorTableAddress, DescriptorCount);
@@ -160,6 +175,77 @@ disableEthernetInterrupts()
 	ETH->DMACSR = ETH->DMACSR;
 }
 
+bool
+isTxDescriptorFree(std::size_t index)
+{
+	return (TxDescriptors[index].DESC3 & TxDesc3Own) == 0 && !TxContexts[index].inUse;
+}
+
+std::size_t
+countFreeTxDescriptors()
+{
+	std::size_t count = 0;
+	for (std::size_t index = 0; index < DescriptorCount; ++index) {
+		if (isTxDescriptorFree(index))
+			count++;
+	}
+	if (DmaDiagnostics.txMinFreeDescriptors == 0 ||
+			count < DmaDiagnostics.txMinFreeDescriptors) {
+		DmaDiagnostics.txMinFreeDescriptors = count;
+	}
+	if (count == 0)
+		DmaDiagnostics.txRingFull++;
+	return count;
+}
+
+void
+updateTxDescriptorUseStats()
+{
+	std::size_t inUse = 0;
+	for (const auto &context : TxContexts) {
+		if (context.inUse)
+			inUse++;
+	}
+
+	DmaDiagnostics.txDescriptorsInUse = inUse;
+	if (inUse > DmaDiagnostics.txMaxDescriptorsInUse)
+		DmaDiagnostics.txMaxDescriptorsInUse = inUse;
+}
+
+void
+cleanTxPayloadCache(const void *payload, std::size_t length)
+{
+	BENCH_TIME_BEGIN(cache_clean_start);
+	if (payload == nullptr || length == 0) {
+		BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
+		return;
+	}
+
+	const auto address = reinterpret_cast<uintptr_t>(payload);
+	const bool inEthernetLwipRegion =
+			address >= EthernetRamBase &&
+			address + length <= EthernetRamBase + EthernetRamSizeBytes;
+
+	// The Ethernet/lwIP MPU region is configured as non-cacheable, so pbufs
+	// allocated from the lwIP heap do not need cache cleaning before TX DMA.
+	if (inEthernetLwipRegion) {
+		BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
+		return;
+	}
+
+	if ((SCB->CCR & SCB_CCR_DC_Msk) == 0) {
+		BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
+		return;
+	}
+
+	constexpr uintptr_t CacheLineSize { 32 };
+	const uintptr_t start = address & ~(CacheLineSize - 1);
+	const uintptr_t end = (address + length + CacheLineSize - 1) & ~(CacheLineSize - 1);
+	SCB_CleanDCache_by_Addr(reinterpret_cast<uint32_t *>(start),
+			static_cast<int32_t>(end - start));
+	BENCH_TIME_END(eth_bench_eth_cache_clean, cache_clean_start);
+}
+
 }
 
 namespace ethernet_dma
@@ -169,7 +255,7 @@ void
 configureMpuRegion()
 {
 	constexpr uint32_t regionNumber { 7 };
-	constexpr uint32_t size32k { 14 };
+	constexpr uint32_t size128k { 16 };
 
 	__DMB();
 	MPU->CTRL &= ~MPU_CTRL_ENABLE_Msk;
@@ -180,7 +266,7 @@ configureMpuRegion()
 			(3UL << MPU_RASR_AP_Pos) |
 			(1UL << MPU_RASR_TEX_Pos) |
 			(1UL << MPU_RASR_S_Pos) |
-			(size32k << MPU_RASR_SIZE_Pos) |
+			(size128k << MPU_RASR_SIZE_Pos) |
 			MPU_RASR_ENABLE_Msk;
 	MPU->CTRL = MPU_CTRL_PRIVDEFENA_Msk | MPU_CTRL_ENABLE_Msk;
 	__DSB();
@@ -222,14 +308,17 @@ initialize()
 bool
 transmitFrame(const uint8_t *frame, std::size_t length)
 {
+	reclaimTxDescriptors();
+
 	if (frame == nullptr || length == 0 || length > TxBufferSize) {
 		DmaDiagnostics.txErrors++;
 		return false;
 	}
 
 	auto &descriptor = TxDescriptors[TxDescriptorIndex];
-	if ((descriptor.DESC3 & TxDesc3Own) != 0) {
+	if (!isTxDescriptorFree(TxDescriptorIndex)) {
 		DmaDiagnostics.txBusy++;
+		DmaDiagnostics.txDescriptorStarvation++;
 		return false;
 	}
 
@@ -243,6 +332,9 @@ transmitFrame(const uint8_t *frame, std::size_t length)
 	descriptor.DESC1 = 0;
 	descriptor.DESC2 = uint32_t(frameLength);
 	descriptor.DESC3 = TxDesc3Fd | TxDesc3Ld | (uint32_t(frameLength) & TxDesc3FrameLengthMask);
+#if ETH_TX_CHECKSUM_OFFLOAD_ENABLE
+	descriptor.DESC3 |= TxDesc3ChecksumFull;
+#endif
 
 	__DMB();
 	descriptor.DESC3 |= TxDesc3Own;
@@ -251,7 +343,107 @@ transmitFrame(const uint8_t *frame, std::size_t length)
 	TxDescriptorIndex = (TxDescriptorIndex + 1) % DescriptorCount;
 	ETH->DMACTDTPR = uint32_t(&TxDescriptors[TxDescriptorIndex]);
 	DmaDiagnostics.txFrames++;
+	DmaDiagnostics.txCopyFrames++;
+	DmaDiagnostics.txCopyBytes += frameLength;
 
+	return true;
+}
+
+bool
+transmitPbuf(struct pbuf *p)
+{
+	reclaimTxDescriptors();
+
+	if (p == nullptr || p->tot_len == 0) {
+		DmaDiagnostics.txErrors++;
+		return false;
+	}
+
+	std::size_t descriptorCount = 0;
+	for (const struct pbuf *q = p; q != nullptr; q = q->next) {
+		if (q->len == 0)
+			continue;
+		descriptorCount++;
+	}
+
+	if (descriptorCount == 0 || p->tot_len > MaxFrameSize) {
+		DmaDiagnostics.txErrors++;
+		return false;
+	}
+
+	if (descriptorCount > DmaDiagnostics.txMaxPbufChainLength)
+		DmaDiagnostics.txMaxPbufChainLength = descriptorCount;
+	if (descriptorCount > DmaDiagnostics.txMaxDescriptorsPerFrame)
+		DmaDiagnostics.txMaxDescriptorsPerFrame = descriptorCount;
+
+	if (descriptorCount > DescriptorCount) {
+		DmaDiagnostics.txPbufChainTooLong++;
+		return false;
+	}
+
+	if (countFreeTxDescriptors() < descriptorCount) {
+		DmaDiagnostics.txDescriptorStarvation++;
+		return false;
+	}
+
+	for (std::size_t offset = 0; offset < descriptorCount; ++offset) {
+		const std::size_t index = (TxDescriptorIndex + offset) % DescriptorCount;
+		if (!isTxDescriptorFree(index)) {
+			DmaDiagnostics.txDescriptorStarvation++;
+			return false;
+		}
+	}
+
+	pbuf_ref(p);
+	DmaDiagnostics.txPbufRefsAcquired++;
+
+	BENCH_TIME_BEGIN(descriptor_setup_start);
+	std::size_t descriptorOffset = 0;
+	for (const struct pbuf *q = p; q != nullptr; q = q->next) {
+		if (q->len == 0)
+			continue;
+
+		const std::size_t index = (TxDescriptorIndex + descriptorOffset) % DescriptorCount;
+		auto &descriptor = TxDescriptors[index];
+		auto &context = TxContexts[index];
+		const bool first = descriptorOffset == 0;
+		const bool last = descriptorOffset == descriptorCount - 1;
+
+		cleanTxPayloadCache(q->payload, q->len);
+
+		descriptor.DESC0 = reinterpret_cast<uint32_t>(q->payload);
+		descriptor.DESC1 = 0;
+		descriptor.DESC2 = uint32_t(q->len);
+		descriptor.DESC3 =
+				(first ? TxDesc3Fd : 0) |
+				(last ? TxDesc3Ld : 0) |
+				(first ? (uint32_t(p->tot_len) & TxDesc3FrameLengthMask) : 0)
+#if ETH_TX_CHECKSUM_OFFLOAD_ENABLE
+				| (first ? TxDesc3ChecksumFull : 0)
+#endif
+				;
+
+		context.frame = last ? p : nullptr;
+		context.inUse = true;
+		context.isFrameEnd = last;
+		descriptorOffset++;
+	}
+
+	__DMB();
+	for (std::size_t offset = descriptorCount; offset > 0; --offset) {
+		const std::size_t index = (TxDescriptorIndex + offset - 1) % DescriptorCount;
+		TxDescriptors[index].DESC3 |= TxDesc3Own;
+	}
+	__DSB();
+
+	TxDescriptorIndex = (TxDescriptorIndex + descriptorCount) % DescriptorCount;
+	ETH->DMACTDTPR = uint32_t(&TxDescriptors[TxDescriptorIndex]);
+
+	DmaDiagnostics.txFrames++;
+	DmaDiagnostics.txZeroCopyFrames++;
+	DmaDiagnostics.txZeroCopyBytes += p->tot_len;
+	updateTxDescriptorUseStats();
+	BENCH_TIME_END(eth_bench_eth_descriptor_setup, descriptor_setup_start);
 	return true;
 }
 
@@ -296,12 +488,44 @@ linkIsUp()
 void
 pollDmaStatus()
 {
+	reclaimTxDescriptors();
+
 	const uint32_t status = ETH->DMACSR;
 	if (status != 0) {
 		MODM_LOG_INFO << "DMACSR=0x" << modm::hex << status << modm::ascii << modm::endl;
 		ETH->DMACSR = status;
 	}
 	DmaDiagnostics.linkUp = linkIsUp();
+}
+
+void
+reclaimTxDescriptors()
+{
+	BENCH_TIME_BEGIN(reclaim_start);
+	DmaDiagnostics.txReclaimCalls++;
+
+	for (std::size_t index = 0; index < DescriptorCount; ++index) {
+		auto &context = TxContexts[index];
+		if (!context.inUse)
+			continue;
+
+		if ((TxDescriptors[index].DESC3 & TxDesc3Own) != 0)
+			continue;
+
+		DmaDiagnostics.txCompletedDescriptors++;
+		if (context.isFrameEnd) {
+			DmaDiagnostics.txCompletedFrames++;
+			if (context.frame != nullptr) {
+				pbuf_free(context.frame);
+				DmaDiagnostics.txPbufsReleased++;
+			}
+		}
+
+		context = {};
+	}
+
+	updateTxDescriptorUseStats();
+	BENCH_TIME_END(eth_bench_eth_reclaim, reclaim_start);
 }
 
 void
@@ -326,4 +550,36 @@ diagnostics()
 	return DmaDiagnostics;
 }
 
+}
+
+extern "C" void
+ethernet_dma_get_diagnostics(EthernetDmaDiagnosticsSnapshot *snapshot)
+{
+	if (snapshot == nullptr)
+		return;
+
+	snapshot->tx_zero_copy_frames = DmaDiagnostics.txZeroCopyFrames;
+	snapshot->tx_zero_copy_bytes = DmaDiagnostics.txZeroCopyBytes;
+	snapshot->tx_copy_frames = DmaDiagnostics.txCopyFrames;
+	snapshot->tx_copy_bytes = DmaDiagnostics.txCopyBytes;
+	snapshot->tx_descriptor_starvation = DmaDiagnostics.txDescriptorStarvation;
+	snapshot->tx_ring_full = DmaDiagnostics.txRingFull;
+	snapshot->tx_reclaim_calls = DmaDiagnostics.txReclaimCalls;
+	snapshot->tx_completed_descriptors = DmaDiagnostics.txCompletedDescriptors;
+	snapshot->tx_completed_frames = DmaDiagnostics.txCompletedFrames;
+	snapshot->tx_pbuf_refs_acquired = DmaDiagnostics.txPbufRefsAcquired;
+	snapshot->tx_pbufs_released = DmaDiagnostics.txPbufsReleased;
+	snapshot->tx_descriptors_in_use = DmaDiagnostics.txDescriptorsInUse;
+	snapshot->tx_max_descriptors_in_use = DmaDiagnostics.txMaxDescriptorsInUse;
+	snapshot->tx_min_free_descriptors = DmaDiagnostics.txMinFreeDescriptors;
+	snapshot->tx_max_pbuf_chain_length = DmaDiagnostics.txMaxPbufChainLength;
+	snapshot->tx_max_descriptors_per_frame = DmaDiagnostics.txMaxDescriptorsPerFrame;
+	snapshot->tx_errors = DmaDiagnostics.txErrors;
+	snapshot->tx_busy = DmaDiagnostics.txBusy;
+}
+
+extern "C" void
+ethernet_dma_reclaim_tx_descriptors(void)
+{
+	ethernet_dma::reclaimTxDescriptors();
 }

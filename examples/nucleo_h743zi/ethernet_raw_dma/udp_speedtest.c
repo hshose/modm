@@ -1,5 +1,8 @@
 #include "udp_speedtest.h"
 
+#include "ethernet_dma_diag.h"
+#include "eth_bench.h"
+
 #include "lwip/err.h"
 #include "lwip/ip_addr.h"
 #include "lwip/pbuf.h"
@@ -37,7 +40,26 @@ typedef struct __attribute__((packed))
 	uint32_t packet_count;
 	uint32_t payload_size;
 	uint32_t inter_packet_delay_us;
+	uint32_t tx_budget_per_poll;
+	uint32_t fill_mode;
 } UdpSpeedtestTxStart;
+
+typedef struct __attribute__((packed))
+{
+	UdpSpeedtestHeader header;
+	uint32_t packet_count;
+	uint32_t payload_size;
+	uint32_t inter_packet_delay_us;
+	uint32_t tx_budget_per_poll;
+} UdpSpeedtestTxStartLegacy;
+
+typedef struct __attribute__((packed))
+{
+	UdpSpeedtestHeader header;
+	uint32_t packet_count;
+	uint32_t payload_size;
+	uint32_t inter_packet_delay_us;
+} UdpSpeedtestTxStartVeryLegacy;
 
 typedef struct __attribute__((packed))
 {
@@ -48,6 +70,15 @@ typedef struct __attribute__((packed))
 	uint32_t sent_bytes;
 	uint32_t elapsed_us;
 	uint32_t bytes_per_second;
+	uint32_t active_tx_budget_per_poll;
+	uint32_t udp_sendto_calls;
+	uint32_t udp_sendto_errors;
+	uint32_t tx_blocked_events;
+	uint32_t tx_poll_calls;
+	uint32_t tx_max_packets_per_poll;
+	uint32_t active_fill_mode;
+	EthernetDmaDiagnosticsSnapshot eth;
+	EthBenchTimingSnapshot timing;
 } UdpSpeedtestTxDone;
 
 extern uint32_t sys_now(void);
@@ -77,6 +108,14 @@ static uint32_t tx_send_errors;
 static uint32_t tx_sent_bytes;
 static uint32_t tx_start_time_us;
 static uint32_t tx_last_send_time_us;
+static uint32_t tx_budget_per_poll = UDP_SPEEDTEST_TX_BUDGET_DEFAULT;
+static uint32_t tx_sendto_calls;
+static uint32_t tx_sendto_errors;
+static uint32_t tx_blocked_events;
+static uint32_t tx_poll_calls;
+static uint32_t tx_current_poll_packets;
+static uint32_t tx_max_packets_per_poll;
+static UdpSpeedtestFillMode tx_fill_mode = UDP_SPEEDTEST_FILL_FULL_PATTERN;
 
 static uint8_t tx_payload[UDP_SPEEDTEST_MAX_PAYLOAD_SIZE];
 
@@ -186,6 +225,19 @@ send_tx_done(void)
 	done.sent_bytes = tx_sent_bytes;
 	done.elapsed_us = duration;
 	done.bytes_per_second = bytes_per_second(tx_sent_bytes, duration);
+	done.active_tx_budget_per_poll = tx_budget_per_poll;
+	done.udp_sendto_calls = tx_sendto_calls;
+	done.udp_sendto_errors = tx_sendto_errors;
+	done.tx_blocked_events = tx_blocked_events;
+	done.tx_poll_calls = tx_poll_calls;
+	done.tx_max_packets_per_poll = tx_max_packets_per_poll;
+	done.active_fill_mode = (uint32_t)tx_fill_mode;
+	EthernetDmaDiagnosticsSnapshot eth;
+	ethernet_dma_get_diagnostics(&eth);
+	memcpy(&done.eth, &eth, sizeof(eth));
+	EthBenchTimingSnapshot timing;
+	eth_bench_get_snapshot(&timing);
+	memcpy(&done.timing, &timing, sizeof(timing));
 
 	struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, sizeof(done), PBUF_RAM);
 	if (p == NULL) {
@@ -236,12 +288,14 @@ static void
 handle_tx_start(struct pbuf *p, const ip_addr_t *addr, uint16_t port)
 {
 	UdpSpeedtestTxStart command;
-	if (p->tot_len < sizeof(command)) {
+	if (p->tot_len < sizeof(UdpSpeedtestTxStartVeryLegacy)) {
 		rx_malformed_packets++;
 		return;
 	}
 
-	pbuf_copy_partial(p, &command, sizeof(command), 0);
+	memset(&command, 0, sizeof(command));
+	const uint16_t command_size = (p->tot_len < sizeof(command)) ? p->tot_len : sizeof(command);
+	pbuf_copy_partial(p, &command, command_size, 0);
 	if (command.packet_count == 0 ||
 			command.payload_size < sizeof(UdpSpeedtestHeader) ||
 			command.payload_size > UDP_SPEEDTEST_MAX_PAYLOAD_SIZE) {
@@ -254,14 +308,93 @@ handle_tx_start(struct pbuf *p, const ip_addr_t *addr, uint16_t port)
 	tx_requested_packets = command.packet_count;
 	tx_payload_size = command.payload_size;
 	tx_inter_packet_delay_us = command.inter_packet_delay_us;
+	tx_budget_per_poll = command.tx_budget_per_poll;
+	if (tx_budget_per_poll == 0)
+		tx_budget_per_poll = UDP_SPEEDTEST_TX_BUDGET_DEFAULT;
+	if (tx_budget_per_poll > UDP_SPEEDTEST_TX_BUDGET_MAX)
+		tx_budget_per_poll = UDP_SPEEDTEST_TX_BUDGET_MAX;
+	tx_fill_mode = (UdpSpeedtestFillMode)command.fill_mode;
+	if (tx_fill_mode != UDP_SPEEDTEST_FILL_FULL_PATTERN &&
+			tx_fill_mode != UDP_SPEEDTEST_FILL_HEADER_ONLY) {
+		tx_fill_mode = UDP_SPEEDTEST_FILL_FULL_PATTERN;
+	}
 	tx_next_seq = 0;
 	tx_attempted_packets = 0;
 	tx_sent_packets = 0;
 	tx_send_errors = 0;
 	tx_sent_bytes = 0;
+	tx_sendto_calls = 0;
+	tx_sendto_errors = 0;
+	tx_blocked_events = 0;
+	tx_poll_calls = 0;
+	tx_current_poll_packets = 0;
+	tx_max_packets_per_poll = 0;
 	tx_start_time_us = udp_speedtest_time_us();
 	tx_last_send_time_us = 0;
+	eth_bench_reset();
 	tx_active = true;
+}
+
+static bool
+send_tx_packet(void)
+{
+	BENCH_TIME_BEGIN(send_one_start);
+	BENCH_TIME_BEGIN(alloc_start);
+	struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, (u16_t)tx_payload_size, PBUF_RAM);
+	BENCH_TIME_END(eth_bench_udp_pbuf_alloc, alloc_start);
+
+	if (p == NULL) {
+		tx_blocked_events++;
+		BENCH_TIME_END(eth_bench_udp_send_one, send_one_start);
+		return false;
+	}
+
+	tx_attempted_packets++;
+
+	UdpSpeedtestHeader header;
+	err_t result = ERR_OK;
+	BENCH_TIME_BEGIN(fill_start);
+	fill_header(&header, UDP_SPEEDTEST_TX_DATA, tx_next_seq, tx_payload_size);
+	if (tx_fill_mode == UDP_SPEEDTEST_FILL_HEADER_ONLY) {
+		result = pbuf_take(p, &header, sizeof(header));
+	}
+	else {
+		memcpy(tx_payload, &header, sizeof(header));
+		for (uint32_t index = sizeof(UdpSpeedtestHeader); index < tx_payload_size; ++index)
+			tx_payload[index] = (uint8_t)(tx_next_seq + index);
+		result = pbuf_take(p, tx_payload, (u16_t)tx_payload_size);
+	}
+	BENCH_TIME_END(eth_bench_udp_payload_fill, fill_start);
+
+	if (result == ERR_OK) {
+		tx_sendto_calls++;
+		BENCH_TIME_BEGIN(sendto_start);
+		result = udp_sendto(speedtest_pcb, p, &tx_addr, tx_port);
+		BENCH_TIME_END(eth_bench_udp_sendto, sendto_start);
+	}
+
+	if (result == ERR_OK) {
+		tx_sent_packets++;
+		tx_sent_bytes += tx_payload_size;
+		tx_last_send_time_us = udp_speedtest_time_us();
+		tx_next_seq++;
+		tx_current_poll_packets++;
+		if (tx_current_poll_packets > tx_max_packets_per_poll)
+			tx_max_packets_per_poll = tx_current_poll_packets;
+	}
+	else {
+		tx_send_errors++;
+		if (result == ERR_MEM)
+			tx_blocked_events++;
+		if (result != ERR_OK)
+			tx_sendto_errors++;
+	}
+
+	BENCH_TIME_BEGIN(free_start);
+	pbuf_free(p);
+	BENCH_TIME_END(eth_bench_udp_pbuf_free, free_start);
+	BENCH_TIME_END(eth_bench_udp_send_one, send_one_start);
+	return result == ERR_OK;
 }
 
 static void
@@ -308,6 +441,8 @@ udp_speedtest_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 void
 udp_speedtest_init(void)
 {
+	eth_bench_init();
+
 	if (speedtest_pcb != NULL)
 		return;
 
@@ -333,45 +468,33 @@ udp_speedtest_poll(void)
 	if (!tx_active || speedtest_pcb == NULL)
 		return;
 
-	uint32_t budget = UDP_SPEEDTEST_TX_BUDGET_PER_POLL;
+	BENCH_TIME_BEGIN(poll_start);
+	ethernet_dma_reclaim_tx_descriptors();
+
+	tx_poll_calls++;
+	tx_current_poll_packets = 0;
+	uint32_t budget = tx_budget_per_poll;
 	while (tx_active && budget-- > 0) {
 		const uint32_t now = udp_speedtest_time_us();
 		if (tx_inter_packet_delay_us != 0 &&
 				tx_last_send_time_us != 0 &&
 				elapsed_us(tx_last_send_time_us, now) < tx_inter_packet_delay_us) {
+			BENCH_TIME_END(eth_bench_udp_poll, poll_start);
 			return;
 		}
 
 		if (tx_next_seq >= tx_requested_packets) {
+			BENCH_TIME_END(eth_bench_udp_poll, poll_start);
 			send_tx_done();
 			return;
 		}
 
-		fill_header((UdpSpeedtestHeader *)tx_payload, UDP_SPEEDTEST_TX_DATA,
-				tx_next_seq, tx_payload_size);
-		for (uint32_t index = sizeof(UdpSpeedtestHeader); index < tx_payload_size; ++index)
-			tx_payload[index] = (uint8_t)(tx_next_seq + index);
-
-		struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, (u16_t)tx_payload_size, PBUF_RAM);
-		tx_attempted_packets++;
-		if (p == NULL) {
-			tx_send_errors++;
-			return;
-		}
-
-		if (pbuf_take(p, tx_payload, (u16_t)tx_payload_size) == ERR_OK &&
-				udp_sendto(speedtest_pcb, p, &tx_addr, tx_port) == ERR_OK) {
-			tx_sent_packets++;
-			tx_sent_bytes += tx_payload_size;
-			tx_last_send_time_us = now;
-			tx_next_seq++;
-		}
-		else {
-			tx_send_errors++;
-		}
-
-		pbuf_free(p);
+		if (!send_tx_packet())
+			break;
 	}
+
+	ethernet_dma_reclaim_tx_descriptors();
+	BENCH_TIME_END(eth_bench_udp_poll, poll_start);
 }
 
 uint32_t

@@ -1,5 +1,6 @@
 #include "ethernetif.h"
 
+#include "eth_bench.h"
 #include "ethernet_dma.hpp"
 #include "network.hpp"
 
@@ -39,7 +40,7 @@ countFrame(const uint8_t *frame, std::size_t length)
 }
 
 err_t
-lowLevelOutput(struct netif *, struct pbuf *p)
+lowLevelOutputCopy(struct netif *, struct pbuf *p)
 {
 	if (p->tot_len > sizeof(TxFrame)) {
 		network::Diagnostics.txErrors++;
@@ -60,6 +61,46 @@ lowLevelOutput(struct netif *, struct pbuf *p)
 
 	network::Diagnostics.txFrames++;
 	return ERR_OK;
+}
+
+err_t
+lowLevelOutputZeroCopy(struct netif *, struct pbuf *p)
+{
+	countFrame(static_cast<const uint8_t *>(p->payload), p->len);
+	if (ethernet_dma::transmitPbuf(p)) {
+		network::Diagnostics.txFrames++;
+		return ERR_OK;
+	}
+
+	return ERR_MEM;
+}
+
+err_t
+lowLevelOutput(struct netif *netif, struct pbuf *p)
+{
+	BENCH_TIME_BEGIN(output_start);
+#if ETH_TX_ZERO_COPY_ENABLE
+	const err_t result = lowLevelOutputZeroCopy(netif, p);
+	if (result == ERR_OK) {
+		BENCH_TIME_END(eth_bench_eth_low_level_output, output_start);
+		return ERR_OK;
+	}
+
+#if ETH_TX_COPY_FALLBACK_ENABLE
+	const err_t copyResult = lowLevelOutputCopy(netif, p);
+	BENCH_TIME_END(eth_bench_eth_low_level_output, output_start);
+	return copyResult;
+#else
+	network::Diagnostics.txErrors++;
+	BENCH_TIME_END(eth_bench_eth_low_level_output, output_start);
+	return result;
+#endif
+
+#else
+	const err_t result = lowLevelOutputCopy(netif, p);
+	BENCH_TIME_END(eth_bench_eth_low_level_output, output_start);
+	return result;
+#endif
 }
 
 struct pbuf *

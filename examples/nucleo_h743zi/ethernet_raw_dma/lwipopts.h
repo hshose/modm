@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "ethernet_config.h"
+
 #include <stdint.h>
 
 #define NO_SYS                          1
@@ -54,10 +56,17 @@
 #define LWIP_BROADCAST_PING             0
 #define LWIP_MULTICAST_PING             0
 
+#if ETH_TX_CHECKSUM_OFFLOAD_ENABLE
+#define CHECKSUM_GEN_IP                 0
+#define CHECKSUM_GEN_UDP                0
+#define CHECKSUM_GEN_TCP                0
+#define CHECKSUM_GEN_ICMP               0
+#else
 #define CHECKSUM_GEN_IP                 1
 #define CHECKSUM_GEN_UDP                1
 #define CHECKSUM_GEN_TCP                1
 #define CHECKSUM_GEN_ICMP               1
+#endif
 #define CHECKSUM_CHECK_IP               1
 #define CHECKSUM_CHECK_UDP              1
 #define CHECKSUM_CHECK_TCP              1

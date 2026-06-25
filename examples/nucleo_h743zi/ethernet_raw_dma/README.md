@@ -112,7 +112,32 @@ python3 tools/tcp_echo_test.py --ip 192.168.1.50 --port 5007
 The script opens one TCP connection, sends small, 1 kB, and 4 kB payloads, and
 verifies that every echoed byte matches.
 
+## Ethernet TX zero-copy
+
+The lwIP Ethernet interface tries zero-copy TX first when
+`ETH_TX_ZERO_COPY_ENABLE` is enabled in `ethernet_dma.hpp`. The fallback copy
+path remains available through `ETH_TX_COPY_FALLBACK_ENABLE`.
+
+Zero-copy TX maps each non-empty segment of the lwIP pbuf chain directly to one
+STM32 Ethernet TX descriptor. The driver first verifies that the full frame can
+fit in the available descriptor ring, then calls `pbuf_ref()` once for the whole
+frame before handing descriptors to DMA. The driver stores that referenced pbuf
+on the last descriptor of the frame. `ethernet_dma::reclaimTxDescriptors()`
+scans completed TX descriptors from `network::poll()` and releases the
+driver-held reference with `pbuf_free()` when the last descriptor completes.
+
+Frames that are too fragmented for the descriptor ring, or that cannot get
+descriptors immediately, fall back to the existing linear-copy TX path when the
+fallback option is enabled. RX remains copy-based.
+
+The lwIP heap starts at `__lwip_heap_start` inside the 128 kB Ethernet/lwIP MPU
+window in D2 SRAM2 at `0x30020000`. That region is configured non-cacheable for DMA, so pbuf
+payloads allocated by lwIP do not need D-cache cleaning. The TX path still
+contains a cache-clean helper for payload pointers outside that MPU window, used
+only if D-cache is enabled.
+
 The lwIP usable heap is 10 kB (`MEM_SIZE`) and starts at linker symbol
-`__lwip_heap_start`, directly after the TX DMA buffer area in D2 SRAM3. The
+`__lwip_heap_start`, directly after the TX DMA buffer area in D2 SRAM2. The
 linker section reserves that heap plus lwIP allocator metadata. The MPU region
-covers the whole 32 kB Ethernet/lwIP window at `0x30040000`.
+covers all 128 kB of D2 SRAM2 at `0x30020000`. The Ethernet ring uses
+32 RX descriptors and 32 TX descriptors.

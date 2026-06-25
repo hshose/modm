@@ -68,6 +68,7 @@ poll()
 			netif_set_link_down(&Netif);
 	}
 
+	ethernet_dma::reclaimTxDescriptors();
 	ethernetif_input(&Netif);
 	sys_check_timeouts();
 	udp_speedtest_poll();

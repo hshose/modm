@@ -61,3 +61,6 @@
 [submodule "ext/nordic/nrfx"]
 	path = ext/nordic/nrfx
 	url = https://github.com/modm-ext/nrfx-partial.git
+[submodule "ext/lwip"]
+	path = ext/lwip
+	url = https://github.com/stm32duino/LwIP.git

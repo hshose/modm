@@ -1,0 +1,11 @@
+<library>
+  <extends>modm:nucleo-h743zi</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/nucleo_h743zi/aeat9922_speed_test</option>
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+    <module>modm:platform:spi:3</module>
+    <module>modm:driver:aeat9922</module>
+  </modules>
+</library>

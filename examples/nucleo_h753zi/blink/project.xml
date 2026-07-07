@@ -1,0 +1,13 @@
+<library>
+  <extends>modm:nucleo-h753zi</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/nucleo_h753zi/blink</option>
+    <option name="modm:platform:cortex-m:enable_icache">no</option>
+    <option name="modm:platform:cortex-m:enable_dcache">no</option>
+  </options>
+  <modules>
+    <module>modm:architecture:memory</module>
+    <module>modm:build:scons</module>
+    <module>modm:processing:timer</module>
+  </modules>
+</library>
